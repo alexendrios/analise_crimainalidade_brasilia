@@ -1,2 +1,30 @@
-venv
-__pycache__
+# Ambiente virtual
+venv/
+.env/
+.env.*
+
+# Cache do Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Diretórios de dados e logs (mantém a pasta, ignora arquivos)
+data/*
+!data/.gitkeep
+
+logs/*
+!logs/.gitkeep
+
+# Arquivos temporários gerais
+*.log
+*.tmp
+*.bak
+
+# Configurações de IDEs
+.vscode/
+.idea/
+
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
