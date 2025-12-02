@@ -9,6 +9,8 @@ __pycache__/
 *.pyo
 *.pyd
 
+.pytest_cache/
+
 # Diretórios de dados e logs (mantém a pasta, ignora arquivos)
 data/*
 !data/.gitkeep
@@ -28,3 +30,6 @@ logs/*
 # Arquivos do sistema operacional
 .DS_Store
 Thumbs.db
+
+htmlcov/
+test_report/

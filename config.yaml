@@ -1,0 +1,57 @@
+app:
+  name: "coleta_gdf"
+  description: "Pipeline de coleta, tratamento e armazenamento de dados do GDF."
+  env: "development"
+  debug: true
+
+paths:
+  base_dir: "."
+  logs_dir: "./logs"
+  data_dir: "./data"
+  csv_dir: "./data/csv"
+  planilha_dir: "./data/planilha"
+  temp_dir: "./data/temp"
+  output_dir: "./data/output"
+
+logs:
+  level: "INFO"
+  filename: "info.log"
+  rotation: "daily"     # opções: daily, weekly, size
+  retention_days: 7
+
+coleta:
+  # Tempo entre coletas (em segundos) — caso rode como serviço
+  intervalo_coleta: 3600  
+  timeout_request: 60
+  max_tentativas: 5
+
+  # URLs públicas do GDF (ajuste conforme os datasets que você consome)
+  fontes:
+    dados_abertos:
+      url: "https://dados.df.gov.br"
+      limite_por_requisicao: 50000
+
+api:
+  retries: 3
+  timeout: 30
+  user_agent: "ColetaGDFBot/1.0"
+
+database:
+  use_database: false   # altere para true se for usar PostgreSQL ou outro
+  type: "postgres"
+  host: "localhost"
+  port: 5432
+  user: "postgres"
+  password: "senha123"
+  name: "coleta_gdf"
+
+processamento:
+  limpar_diretorios_antes: true
+  gerar_planilha_excel: true
+  gerar_csv_unico: true
+  salvar_logs_em_arquivo: true
+
+scheduler:
+  ativado: false     # Ativar quando for rodar agendamento
+  hora_execucao: "03:00"  # Formato 24h
+  dias_semana: [1,2,3,4,5,6]
