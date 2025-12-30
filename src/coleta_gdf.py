@@ -1,37 +1,20 @@
 from datetime import datetime
-from util.arquivos import download_arquivo, limpar_diretorios
+from util.arquivos import download_arquivo
 from util.log import logs
 from util.rotas import gerar_urls_rotas
+
 logger = logs()
 
-def coleta_dados():
-    limpar_diretorios()
+
+def coleta_dados(url_, lista_nomes, rotas):
+    """Função principal para coletar dados das URLs definidas."""
 
     start = datetime.now()
     logger.info(f"Processo iniciado em {start.strftime('%Y-%m-%d %H:%M:%S')}")
 
-    urls_rotas = gerar_urls_rotas()
+    urls_rotas = gerar_urls_rotas(url_, rotas)
 
-    planilhas = [
-        "roubo-a-transeunte",
-        "roubo-de-veiculo",
-        "roubo-em-transporte-coletivo",
-        "roubo-em-comercio",
-        "furto-em-veiculo",
-        "injuria-racial",
-        "racismo",
-        "crimes-contra-mulher",
-        "homicidio",
-        "latrocinio",
-        "lesao-corporal-morte",
-        "feminicidio",
-        "idosos_2016",
-        "idosos_mensais",
-        "idosos_7_anos",
-        "desaparecimento-regiao",
-        "desaparecimento-idade-sexo",
-        "desaparecimento-localizados"
-    ]
+    planilhas = lista_nomes
 
     # Segurança contra índice fora da lista
     if len(urls_rotas) != len(planilhas):
@@ -50,5 +33,4 @@ def coleta_dados():
     logger.info(f"Duração total: {end - start}")
 
 
-if __name__ == "__main__":  # pragma: no cover
-    coleta_dados()
+

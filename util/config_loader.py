@@ -11,18 +11,18 @@ def load_yaml(path: str):
         raise FileNotFoundError(f"Arquivo não encontrado: {path}")
 
     with open(path, "r", encoding="utf-8") as f:
-        return yaml.safe_load(f)
+        return yaml.safe_load(f) or {}
 
 
 def override_with_env(cfg, prefix=""):
     """
     Percorre recursivamente o dicionário do YAML e
     sobrescreve valores com variáveis de ambiente (.env).
-    
+
     Regra:
-    - CHAVE no YAML → procuramos ENV com nome UPPERCASE
-      exemplo:
-         database:
+    - CHAVE no YAML → procuramos variável de ambiente em UPPERCASE
+      Exemplo:
+        database:
             host → DATABASE_HOST
             password → DATABASE_PASSWORD
     """
@@ -42,26 +42,30 @@ def load_config():
     Carrega:
       ✓ config.yaml
       ✓ rotas.yaml
+      ✓ ibge_rotas.yaml
       ✓ variáveis do .env
     e unifica em um único dicionário.
     """
-    # Carrega variáveis de ambiente primeiro
     load_dotenv()
 
-    # Carrega YAML principal
+    # YAML principal
     config = load_yaml("config.yaml")
 
-    # Carrega YAML secundário de rotas
+    # rotas.yaml → armazenado como config["rotas"]
     rotas_yaml = load_yaml("rotas.yaml")
-    config["rotas"] = rotas_yaml.get("rotas", {})
+    config["rotas"] = rotas_yaml.get("rotas", rotas_yaml)
 
-    # Sobrepor com valores do .env
+    # ibge_rotas.yaml → armazenado como config["rotas_ibge"]
+    rotas_ibge_yaml = load_yaml("rotas_ibge.yaml")
+    config["rotas_ibge"] = rotas_ibge_yaml.get("rotas_ibge", rotas_ibge_yaml)
+
+    # sobrepor com .env
     override_with_env(config)
 
     return config
 
 
-# Instância global (evita ficar lendo YAML toda execução)
+# Instância global (cache)
 config = load_config()
 
 

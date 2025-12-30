@@ -30,6 +30,9 @@ coleta:
     dados_abertos:
       url: "https://dados.df.gov.br"
       limite_por_requisicao: 50000
+    dados_ibge:
+      url: "https://ftp.ibge.gov.br"
+      limite_por_requisicao: 50000  
 
 api:
   retries: 3

@@ -21,7 +21,9 @@ def limpar_diretorios():
     pastas = {
         "./data/csv/*.csv": "Arquivos CSV",
         "./data/planilha/*.xlsx": "Arquivos XLSX",
-        "./logs/*.log": "Arquivos de LOG"
+        "./data/planilha/*.xls": "Arquivos XLS",
+        "./data/zip/*.zip": "Arquivos ZIP",
+        "./logs/*.log": "Arquivos de LOG",
     }
 
     for padrao, descricao in pastas.items():
@@ -49,15 +51,34 @@ def limpar_diretorios():
 
 def detectar_extensao(content_type: str):
     """Determina extensão e pasta de destino com base no Content-Type."""
-    content_type = content_type.lower()
+    ct = content_type.lower()
 
-    if "csv" in content_type:
+    # ZIP (várias variações possíveis)
+    if (
+        "zip" in ct
+        or "compressed" in ct
+        or ct == "application/octet-stream"  # muitos servidores enviam ZIP assim
+    ):
+        return ".zip", "./data/zip"
+
+    # CSV
+    if "csv" in ct or "text/plain" in ct:
         return ".csv", "./data/csv"
-    if "excel" in content_type or "spreadsheetml" in content_type:
+
+    # Excel XLSX (moderno)
+    if (
+        "spreadsheetml" in ct
+        or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in ct
+    ):
         return ".xlsx", "./data/planilha"
 
-    # Formato desconhecido
+    # Excel XLS (legado)
+    if "application/vnd.ms-excel" in ct or ct.endswith("xls"):
+        return ".xls", "./data/planilha"
+
+    # Desconhecido
     return ".bin", "./data/outros"
+
 
 def download_arquivo(url: str, nome_arquivo: str):
     start = time.time()
@@ -72,12 +93,15 @@ def download_arquivo(url: str, nome_arquivo: str):
         response.raise_for_status()
 
         content_type = response.headers.get("Content-Type", "").lower()
-        # Validação de tipos permitidos
-        tipos_permitidos = ["csv", "excel", "spreadsheetml"]
+
+        # TIPOS PERMITIDOS — AGORA COM ZIP
+        tipos_permitidos = ["csv", "excel", "spreadsheetml", "zip", "compressed", "octet-stream"]
+
         if not any(tp in content_type for tp in tipos_permitidos):
             logger.warning(f"Tipo de conteúdo não suportado: {content_type}")
             return None
 
+        # Detecta extensão real
         ext, folder = detectar_extensao(content_type)
         os.makedirs(folder, exist_ok=True)
 
@@ -85,8 +109,13 @@ def download_arquivo(url: str, nome_arquivo: str):
         total_size = int(response.headers.get("content-length", 0))
         total_bytes = 0
 
-        with tqdm(total=total_size if total_size > 0 else None, unit="B", unit_scale=True,
-                  desc=f"Baixando {nome_arquivo}", ncols=80) as progress: 
+        with tqdm(
+            total=total_size if total_size > 0 else None,
+            unit="B",
+            unit_scale=True,
+            desc=f"Baixando {nome_arquivo}",
+            ncols=80
+        ) as progress:
             for chunk in response.iter_content(chunk_size=1024):
                 if chunk:
                     if file_obj is None:
@@ -98,10 +127,10 @@ def download_arquivo(url: str, nome_arquivo: str):
         if file_obj:
             file_obj.close()
 
-        # Arquivo vazio -> remove e retorna None
+        # Arquivo vazio -> descarta
         if total_bytes == 0:
             if file_path and os.path.exists(file_path):
-                os.remove(file_path) # pragma: no cover
+                os.remove(file_path)
             logger.warning("Arquivo vazio, download abortado.")
             return None
 
@@ -110,18 +139,20 @@ def download_arquivo(url: str, nome_arquivo: str):
 
     except Exception as e:
         logger.error(f"Erro no download: {e}", exc_info=True)
+
         if file_obj:
             try:
-                    file_obj.close()
-            except: # pragma: no cover
-               pass 
-            if file_path:
-                try:
-                    os.remove(file_path)
-                except Exception: # pragma: no cover
-                    pass  # ignora se não existir
-            return None
+                file_obj.close()
+            except:
+                pass
 
+        if file_path:
+            try:
+                os.remove(file_path)
+            except:
+                pass
+
+        return None
 
     finally:
         tempo_total = time.time() - start

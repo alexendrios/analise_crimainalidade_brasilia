@@ -1,0 +1,110 @@
+rotas_ibge:
+  populacao_2000:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2000"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2001:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2001"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2002:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2002"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2003:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2003"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2004:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2004"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2005:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2005"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2006:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2006"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2008:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2008"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2009:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2009"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2011:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2011"
+    arquivo: "UF_Municipio.zip"
+
+  populacao_2012:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2012"
+    arquivo: "Populacao_Municipios_31_10_2012.zip"
+
+  populacao_2013:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2013"
+    arquivo: "estimativa_2013_dou_xls.zip"
+
+  populacao_2014:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2014"
+    arquivo: "estimativa_dou_2014_xls.zip"
+
+  populacao_2015:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2015"
+    arquivo: "estimativa_dou_2015_20150915.xls"
+
+  populacao_2016:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2016"
+    arquivo: "estimativa_dou_2016_20160913.xlsx"
+
+  populacao_2017:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2017"
+    arquivo: "POP2017_20220905.xls"
+
+  populacao_2018:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2018"
+    arquivo: "POP2018_20220905.xls"
+
+  populacao_2019:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2019"
+    arquivo: "POP2019_20220905.xls"
+
+  populacao_2020:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2020"
+    arquivo: "POP2020_20220905.xls"
+
+  populacao_2021:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2021"
+    arquivo: "POP2021_20240624.xls"
+
+  populacao_2024:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2024"
+    arquivo: "POP2024_20241230.xls"
+
+  populacao_2025:
+    dataset: "Estimativas_de_Populacao"
+    resource: "Estimativas_2025"
+    arquivo: "POP2025_20251031.xls"

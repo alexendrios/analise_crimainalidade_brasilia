@@ -1,80 +1,75 @@
 import pytest
-from unittest.mock import patch
 from util.rotas import montar_url, gerar_urls_rotas
 
-# -----------------------------
-# FIXTURE DE CONFIGURAÇÃO MOCK
-# -----------------------------
-@pytest.fixture
-def mock_config():
-    return {
-        "coleta": {
-            "fontes": {
-                "dados_abertos": {
-                    "url": "http://dados.df.gov.br"
-                }
-            }
-        },
-        "rotas": {
-            "r1": {"url": "http://teste1", "arquivo": "arq1"},
-            "r2": {"dataset": "ds", "resource": "res", "arquivo": "arq2"}
-        }
-    }
 
-# -----------------------------
+# ============================================================
 # TESTES montar_url
-# -----------------------------
-@patch("util.rotas.config")
-def test_montar_url_basico(mocked_config, mock_config):
-    mocked_config.__getitem__.side_effect = mock_config.__getitem__
+# ============================================================
 
+
+def test_montar_url_basico():
     url = montar_url(
-        dataset="meu_dataset",
-        resource="12345-abc",
-        arquivo="meu_arquivo.csv"
+        url="http://base", dataset="dataset", resource="resource", arquivo="arquivo.csv"
     )
 
-    assert url == "http://dados.df.gov.br/dataset/meu_dataset/resource/12345-abc/download/meu_arquivo.csv"
+    assert url == "http://base/dataset/resource/arquivo.csv"
 
 
-@patch("util.rotas.config")
-def test_montar_url_com_arquivo_xlsx(mocked_config, mock_config):
-    mocked_config.__getitem__.side_effect = mock_config.__getitem__
+def test_montar_url_com_barra_no_final():
+    url = montar_url(url="http://base/", dataset="d1", resource="r1", arquivo="a1.csv")
 
-    url = montar_url(
-        dataset="dados_transito",
-        resource="res987",
-        arquivo="fluxo.xlsx"
-    )
-
-    assert url.endswith("/dataset/dados_transito/resource/res987/download/fluxo.xlsx")
+    # comportamento atual (sem normalização)
+    assert url == "http://base//d1/r1/a1.csv"
 
 
-@patch("util.rotas.config")
-def test_montar_url_ignora_espacos(mocked_config, mock_config):
-    mocked_config.__getitem__.side_effect = mock_config.__getitem__
-
-    url = montar_url(
-        dataset=" dataset_com_espaco ",
-        resource=" recurso ",
-        arquivo=" arquivo.csv "
-    )
-
-    # Mantendo os espaços, pois a função atual não faz strip
-    assert "/dataset/ dataset_com_espaco /resource/ recurso /download/ arquivo.csv " in url
-
-# -----------------------------
+# ============================================================
 # TESTES gerar_urls_rotas
-# -----------------------------
-def test_gerar_urls():
-    rotas_mock = {
-        "r1": {"url": "http://teste1", "arquivo": "arq1"},
-        "r2": {"dataset": "ds", "resource": "res", "arquivo": "arq2"}
+# ============================================================
+
+
+def test_gerar_urls_rotas_com_url_direta():
+    rotas = {"rota1": {"url": "http://direta/arquivo.csv", "arquivo": "arquivo.csv"}}
+
+    resultado = gerar_urls_rotas("http://base", rotas)
+
+    assert resultado == [("http://direta/arquivo.csv", "arquivo.csv")]
+
+
+def test_gerar_urls_rotas_montada():
+    rotas = {"rota1": {"dataset": "ds", "resource": "res", "arquivo": "arq.csv"}}
+
+    resultado = gerar_urls_rotas("http://base", rotas)
+
+    assert resultado == [("http://base/ds/res/arq.csv", "arq.csv")]
+
+
+def test_gerar_urls_rotas_mista():
+    rotas = {
+        "rota1": {"url": "http://direta/a.csv", "arquivo": "a.csv"},
+        "rota2": {"dataset": "ds", "resource": "res", "arquivo": "b.csv"},
     }
 
-    with patch("util.rotas.montar_url", return_value="http://montado"):
-        urls = gerar_urls_rotas(rotas_mock)
+    resultado = gerar_urls_rotas("http://base", rotas)
 
-    assert urls[0] == ("http://teste1", "arq1")
-    assert urls[1] == ("http://montado", "arq2")
+    assert resultado == [
+        ("http://direta/a.csv", "a.csv"),
+        ("http://base/ds/res/b.csv", "b.csv"),
+    ]
 
+
+def test_gerar_urls_rotas_vazio():
+    resultado = gerar_urls_rotas("http://base", {})
+
+    assert resultado == []
+
+
+def test_gerar_urls_rotas_com_rotas_dict_explicito():
+    rotas = {"rota1": {"dataset": "ds", "resource": "res", "arquivo": "padrao.csv"}}
+
+    resultado = gerar_urls_rotas("http://base", rotas)
+
+    assert resultado == [("http://base/ds/res/padrao.csv", "padrao.csv")]
+
+def test_gerar_urls_rotas_sem_rotas_dict_retorna_vazio():
+    resultado = gerar_urls_rotas("http://base")
+    assert resultado == []
