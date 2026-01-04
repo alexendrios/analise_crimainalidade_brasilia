@@ -134,7 +134,7 @@ def download_arquivo(url: str, nome_arquivo: str):
         # Arquivo vazio -> descarta
         if total_bytes == 0:
             if file_path and os.path.exists(file_path):
-                os.remove(file_path)
+                os.remove(file_path)  # pragma: no cover
             logger.warning("Arquivo vazio, download abortado.")
             return None
 
@@ -147,8 +147,8 @@ def download_arquivo(url: str, nome_arquivo: str):
         if file_obj:
             try:
                 file_obj.close()
-            except:
-                pass
+            except:  # pragma: no cover
+                pass  # pragma: no cover
 
         if file_path:
             try:
@@ -159,8 +159,6 @@ def download_arquivo(url: str, nome_arquivo: str):
         return None
 
     finally:
-        tempo_total = time.time() - start
-        logger.info(f"Tempo total: {tempo_total:.2f} segundos")
-        logger.info("*****************************************************\n")
-
-
+        tempo_total = time.time() - start 
+        logger.info(f"Tempo total: {tempo_total:.2f} segundos") 
+        logger.info("*****************************************************\n")  

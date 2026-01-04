@@ -149,3 +149,25 @@ def test_arquivos_zip_execucao_diretorio_inexistente(monkeypatch, tmp_path):
     )
 
     arquivos_zip_execucao()  # cobre return antecipado
+
+def test_extrair_zip_seguro_permission_error_ao_remover(tmp_path):
+    """
+    Garante cobertura do bloco except PermissionError
+    """
+
+    zip_path = tmp_path / "teste.zip"
+    destino = tmp_path / "destino"
+    destino.mkdir()
+
+    # cria zip com um arquivo
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("arquivo.txt", "novo")
+
+    # cria arquivo existente no destino
+    arquivo_existente = destino / "arquivo.txt"
+    arquivo_existente.write_text("antigo")
+
+    # força PermissionError no os.remove
+    with patch("util.extrator_zip.os.remove", side_effect=PermissionError):
+        with pytest.raises(PermissionError):
+            extrair_zip_seguro(str(zip_path), str(destino))
