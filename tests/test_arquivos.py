@@ -42,6 +42,8 @@ def test_limpar_diretorios_remove_arquivos(
         ["./data/planilha/b.xlsx"],
         [],
         [],
+        [],
+        [],
         ["./logs/c.log"],
     ]
 

@@ -43,5 +43,3 @@ def coletar_dados_():
     logger.info("*****************************************************")
 
 
-if __name__ == "__main__":  # pragma: no cover
-    coletar_dados_() 

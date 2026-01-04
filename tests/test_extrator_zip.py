@@ -1,100 +1,151 @@
 import os
 import zipfile
 import pytest
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from util.extrator_zip import extrair_zip_seguro
+from util.extrator_zip import extrair_zip_seguro, arquivos_zip_execucao
 
 
-# ============================================================
-# FIXTURES
-# ============================================================
+# =====================================================
+# 🧰 Fixtures
+# =====================================================
 @pytest.fixture
-def tmp_zip_dir(tmp_path):
-    zip_dir = tmp_path / "zip"
-    zip_dir.mkdir()
-    return zip_dir
-
-
-@pytest.fixture
-def tmp_destino_dir(tmp_path):
-    destino = tmp_path / "destino"
-    destino.mkdir()
-    return destino
-
-
-def criar_zip(caminho_zip, arquivos):
+def temp_dirs(tmp_path, monkeypatch):
     """
-    Cria um ZIP com os arquivos informados.
-    arquivos = { "nome.txt": "conteudo" }
+    Cria diretórios temporários para ZIP e destino
+    e injeta no módulo testado.
+    """
+    zip_dir = tmp_path / "zip"
+    planilha_dir = tmp_path / "planilha"
+
+    zip_dir.mkdir()
+    planilha_dir.mkdir()
+
+    monkeypatch.setattr("util.extrator_zip.diretorio_zip", str(zip_dir))
+    monkeypatch.setattr("util.extrator_zip.diretorio_destino", str(planilha_dir))
+
+    return zip_dir, planilha_dir
+
+
+def criar_zip(caminho_zip: Path, arquivos: dict[str, str]):
+    """
+    Cria um ZIP simples com conteúdo textual.
     """
     with zipfile.ZipFile(caminho_zip, "w") as z:
         for nome, conteudo in arquivos.items():
             z.writestr(nome, conteudo)
 
 
-# ============================================================
-# TESTE — extração bem-sucedida
-# ============================================================
-@patch("util.extrator_zip.logger")
-def test_extrair_zip_sucesso(mock_logger, tmp_zip_dir, tmp_destino_dir):
-    zip_path = tmp_zip_dir / "teste.zip"
+# =====================================================
+# ✅ Testes extrair_zip_seguro
+# =====================================================
+def test_extrair_zip_seguro_extrai_arquivo(temp_dirs):
+    zip_dir, planilha_dir = temp_dirs
 
-    criar_zip(zip_path, {"arquivo1.txt": "dados", "arquivo2.csv": "1;2;3"})
+    zip_path = zip_dir / "teste.zip"
+    criar_zip(zip_path, {"arquivo.txt": "conteudo"})
 
-    extrair_zip_seguro(str(zip_path), str(tmp_destino_dir))
+    extrair_zip_seguro(str(zip_path), str(planilha_dir))
 
-    assert (tmp_destino_dir / "arquivo1.txt").exists()
-    assert (tmp_destino_dir / "arquivo2.csv").exists()
+    arquivo_extraido = planilha_dir / "arquivo.txt"
+    assert arquivo_extraido.exists()
+    assert arquivo_extraido.read_text() == "conteudo"
 
-    assert mock_logger.info.call_count > 0
+
+def test_extrair_zip_seguro_remove_arquivo_existente(temp_dirs):
+    zip_dir, planilha_dir = temp_dirs
+
+    arquivo_existente = planilha_dir / "arquivo.txt"
+    arquivo_existente.write_text("antigo")
+
+    zip_path = zip_dir / "teste.zip"
+    criar_zip(zip_path, {"arquivo.txt": "novo"})
+
+    extrair_zip_seguro(str(zip_path), str(planilha_dir))
+
+    assert arquivo_existente.read_text() == "novo"
 
 
-# ============================================================
-# TESTE — Zip Slip detectado
-# ============================================================
-@patch("util.extrator_zip.logger")
-def test_extrair_zip_zip_slip_detectado(mock_logger, tmp_zip_dir, tmp_destino_dir):
-    zip_path = tmp_zip_dir / "malicioso.zip"
+def test_extrair_zip_seguro_detecta_zip_slip(temp_dirs):
+    zip_dir, planilha_dir = temp_dirs
 
-    criar_zip(zip_path, {"../hack.txt": "ataque"})
+    zip_path = zip_dir / "malicioso.zip"
+    with zipfile.ZipFile(zip_path, "w") as z:
+        z.writestr("../evil.txt", "ataque")
 
     with pytest.raises(Exception, match="Zip Slip"):
-        extrair_zip_seguro(str(zip_path), str(tmp_destino_dir))
-
-    mock_logger.error.assert_called_once()
+        extrair_zip_seguro(str(zip_path), str(planilha_dir))
 
 
-# ============================================================
-# TESTE — ZIP vazio
-# ============================================================
-@patch("util.extrator_zip.logger")
-def test_extrair_zip_vazio(mock_logger, tmp_zip_dir, tmp_destino_dir):
-    zip_path = tmp_zip_dir / "vazio.zip"
+def test_extrair_zip_seguro_arquivo_nao_zip(tmp_path):
+    fake_zip = tmp_path / "fake.zip"
+    fake_zip.write_text("nao sou zip")
 
-    criar_zip(zip_path, {})
-
-    extrair_zip_seguro(str(zip_path), str(tmp_destino_dir))
-
-    # Nenhum arquivo criado
-    assert list(tmp_destino_dir.iterdir()) == []
-
-    assert mock_logger.info.call_count > 0
+    with pytest.raises(zipfile.BadZipFile):
+        extrair_zip_seguro(fake_zip, tmp_path)
 
 
-# ============================================================
-# TESTE — múltiplos arquivos no ZIP
-# ============================================================
-@patch("util.extrator_zip.logger")
-def test_extrair_zip_multiplos_arquivos(mock_logger, tmp_zip_dir, tmp_destino_dir):
-    zip_path = tmp_zip_dir / "multi.zip"
+def test_extrair_zip_seguro_exception_generica(tmp_path):
+    fake_zip = tmp_path / "arquivo.zip"
+    fake_zip.touch()
 
-    criar_zip(zip_path, {"a.txt": "a", "b/b.txt": "b", "c/c/c.txt": "c"})
+    with patch("util.extrator_zip.zipfile.ZipFile", side_effect=Exception("erro")):
+        with pytest.raises(Exception):
+            extrair_zip_seguro(fake_zip, tmp_path)
 
-    extrair_zip_seguro(str(zip_path), str(tmp_destino_dir))
 
-    assert (tmp_destino_dir / "a.txt").exists()
-    assert (tmp_destino_dir / "b/b.txt").exists()
-    assert (tmp_destino_dir / "c/c/c.txt").exists()
+def test_extrair_zip_seguro_zip_vazio(tmp_path):
+    zip_path = tmp_path / "vazio.zip"
 
-    assert mock_logger.info.call_count > 0
+    with zipfile.ZipFile(zip_path, "w"):
+        pass
+
+    extrair_zip_seguro(zip_path, tmp_path)
+
+    # Apenas o ZIP deve existir
+    assert list(tmp_path.iterdir()) == [zip_path]
+
+
+def test_extrair_zip_seguro_erro_durante_extracao(tmp_path):
+    fake_zip = tmp_path / "arquivo.zip"
+    fake_zip.touch()
+
+    mock_zip = MagicMock()
+    mock_zip.__enter__.return_value = mock_zip
+    mock_zip.namelist.return_value = ["arquivo.txt"]
+    mock_zip.extractall.side_effect = Exception("erro ao extrair")
+
+    with patch("util.extrator_zip.zipfile.ZipFile", return_value=mock_zip):
+        with pytest.raises(Exception):
+            extrair_zip_seguro(fake_zip, tmp_path)
+
+
+# =====================================================
+# ▶️ Testes arquivos_zip_execucao
+# =====================================================
+def test_arquivos_zip_execucao_extrai_todos(temp_dirs):
+    zip_dir, planilha_dir = temp_dirs
+
+    criar_zip(zip_dir / "a.zip", {"a.txt": "1"})
+    criar_zip(zip_dir / "b.zip", {"b.txt": "2"})
+
+    arquivos_zip_execucao()
+
+    assert (planilha_dir / "a.txt").exists()
+    assert (planilha_dir / "b.txt").exists()
+
+
+def test_arquivos_zip_execucao_sem_zips(temp_dirs):
+    arquivos_zip_execucao()  # não deve lançar exceção
+
+
+def test_arquivos_zip_execucao_diretorio_inexistente(monkeypatch, tmp_path):
+    diretorio_inexistente = tmp_path / "nao_existe"
+
+    monkeypatch.setattr(
+        "util.extrator_zip.diretorio_zip",
+        str(diretorio_inexistente),
+    )
+
+    arquivos_zip_execucao()  # cobre return antecipado

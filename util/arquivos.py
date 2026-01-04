@@ -5,6 +5,8 @@ import requests
 from tqdm import tqdm
 from util.config_loader import get_config
 from util.log import logs, fechar_loggers
+
+
 config = get_config()
 logger = logs()
 
@@ -22,8 +24,10 @@ def limpar_diretorios():
         "./data/csv/*.csv": "Arquivos CSV",
         "./data/planilha/*.xlsx": "Arquivos XLSX",
         "./data/planilha/*.xls": "Arquivos XLS",
+        "./data/planilha/*.pdf": "Arquivos PDF",
         "./data/zip/*.zip": "Arquivos ZIP",
         "./logs/*.log": "Arquivos de LOG",
+        "./data/output/*.csv": "Arquivos CSV de saída",
     }
 
     for padrao, descricao in pastas.items():
@@ -158,3 +162,5 @@ def download_arquivo(url: str, nome_arquivo: str):
         tempo_total = time.time() - start
         logger.info(f"Tempo total: {tempo_total:.2f} segundos")
         logger.info("*****************************************************\n")
+
+
