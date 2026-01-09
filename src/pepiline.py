@@ -1,27 +1,34 @@
+# src/pepiline.py
 from src.busca import coletar_dados_
+from src.scraping import obter_dados_ra_populacao
 from util.extrator_zip import arquivos_zip_execucao
-from util.leitor_excel import (
-    listar_arquivos_populacao,
-    consolidar_historico,
-    salvar_historico_csv,
-)
+from util.leitor_excel import processar_populacao, processar_crimes
+from util.log import logs
+from pathlib import Path
+
+logger = logs()
+
+
+def main():
+    logger.info("Iniciando pipeline...")
+
+    # coleta de dados
+    coletar_dados_()
+    arquivos_zip_execucao()
+
+    # população
+    processar_populacao()
+    obter_dados_ra_populacao()
+
+    # crimes
+    caminho_planilhas = Path("./data/planilha")
+    caminho_saida = Path("./data/csv")
+    caminho_saida.mkdir(parents=True, exist_ok=True)  # garante que a pasta exista
+    processar_crimes(caminho_planilhas, caminho_saida)
+
+    logger.info("Pipeline finalizado com sucesso!")
+    logger.info("===== FIM DO PROCESSO =====")
 
 
 if __name__ == "__main__":  # pragma: no cover
-    # 1️⃣ Coleta dos dados (download)
-    coletar_dados_()
-
-    # 2️⃣ Extração segura dos ZIPs
-    arquivos_zip_execucao()
-
-    # 3️⃣ Leitura automática dos arquivos Excel
-    arquivos = listar_arquivos_populacao("./data/planilha")
-
-    # 4️⃣ Consolidação histórica DF
-    df_historico = consolidar_historico(arquivos)
-
-    # 5️⃣ Exportação para CSV
-    salvar_historico_csv(
-        df_historico,
-        "./data/output/populacao_df_historico.csv",
-    )
+    main()

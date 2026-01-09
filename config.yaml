@@ -32,8 +32,13 @@ coleta:
       limite_por_requisicao: 50000
     dados_ibge:
       url: "https://ftp.ibge.gov.br"
-      limite_por_requisicao: 50000  
-
+      limite_por_requisicao: 50000
+    dados_wikpedia:
+      url_1: "https://pt.wikipedia.org/wiki/Lista_de_regi%C3%B5es_administrativas_do_Distrito_Federal_por_popula%C3%A7%C3%A3o"
+      urls_individuais:
+        - "https://pt.wikipedia.org/wiki/%C3%81gua_Quente_(Distrito_Federal)"
+        - "https://pt.wikipedia.org/wiki/Arapoanga"
+      limite_por_requisicao: 50000 
 api:
   retries: 3
   timeout: 30

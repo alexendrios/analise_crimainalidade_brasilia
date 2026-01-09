@@ -1,76 +1,70 @@
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
+from pathlib import Path
 import pandas as pd
+
+# Fake DataFrame para simular consolidação
+df_fake = pd.DataFrame(
+    {
+        "ano": [2020],
+        "uf": ["DF"],
+        "localidade": ["Distrito Federal"],
+        "populacao": [3000000],
+        "arquivo": ["populacao_2020.xls"],
+    }
+)
 
 
 def test_pipeline_fluxo_completo():
     """
     Testa o fluxo completo do pipeline:
-    1. coleta
+    1. coleta de dados
     2. extração zip
-    3. listagem de arquivos
-    4. consolidação
-    5. exportação CSV
+    3. processamento de população
+    4. obtenção de dados RA
+    5. processamento de crimes
     """
 
-    df_fake = pd.DataFrame(
-        {
-            "ano": [2020],
-            "uf": ["DF"],
-            "localidade": ["Distrito Federal"],
-            "populacao": [3000000],
-            "arquivo": ["populacao_2020.xls"],
-        }
-    )
-
     with (
-        patch("src.pepiline.coletar_dados_") as mock_coletar,
-        patch("src.pepiline.arquivos_zip_execucao") as mock_zip,
-        patch("src.pepiline.listar_arquivos_populacao") as mock_listar,
-        patch("src.pepiline.consolidar_historico") as mock_consolidar,
-        patch("src.pepiline.salvar_historico_csv") as mock_salvar,
+        patch("src.busca.coletar_dados_") as mock_coletar,
+        patch("util.extrator_zip.arquivos_zip_execucao") as mock_zip,
+        patch("util.leitor_excel.processar_populacao") as mock_pop,
+        patch("src.scraping.obter_dados_ra_populacao") as mock_ra,
+        patch("util.leitor_excel.processar_crimes") as mock_crimes,
     ):
-        mock_listar.return_value = ["arquivo1.xls"]
-        mock_consolidar.return_value = df_fake
+        # Mock simples apenas para validar execução
+        mock_pop.return_value = None
+        mock_ra.return_value = None
+        mock_crimes.return_value = None
 
-        # Importação tardia força execução do __main__
+        # Importação tardia para executar o __main__ do pepiline
         import src.pepiline as pipeline
 
-        pipeline.coletar_dados_()
-        pipeline.arquivos_zip_execucao()
-        arquivos = pipeline.listar_arquivos_populacao("./data/planilha")
-        df = pipeline.consolidar_historico(arquivos)
-        pipeline.salvar_historico_csv(
-            df,
-            "./data/output/populacao_df_historico.csv",
-        )
+        pipeline.main()
 
-        # ✔️ Asserts de chamada
+        # ✅ Asserts de chamada
         mock_coletar.assert_called_once()
         mock_zip.assert_called_once()
-        mock_listar.assert_called_once_with("./data/planilha")
-        mock_consolidar.assert_called_once_with(["arquivo1.xls"])
-        mock_salvar.assert_called_once_with(
-            df_fake,
-            "./data/output/populacao_df_historico.csv",
-        )
+        mock_pop.assert_called_once()
+        mock_ra.assert_called_once()
+        mock_crimes.assert_called_once()
 
 
-def test_pipeline_lista_vazia():
+def test_pipeline_crimes_lista_vazia():
     """
-    Garante que pipeline suporta lista vazia sem quebrar
+    Testa pipeline quando não há planilhas de crimes (lista vazia).
     """
-
     with (
-        patch("src.pepiline.coletar_dados_"),
-        patch("src.pepiline.arquivos_zip_execucao"),
-        patch("src.pepiline.listar_arquivos_populacao", return_value=[]),
-        patch("src.pepiline.consolidar_historico", return_value=pd.DataFrame()),
-        patch("src.pepiline.salvar_historico_csv") as mock_salvar,
+        patch("src.busca.coletar_dados_"),
+        patch("util.extrator_zip.arquivos_zip_execucao"),
+        patch("util.leitor_excel.processar_populacao"),
+        patch("src.scraping.obter_dados_ra_populacao"),
+        patch("util.leitor_excel.processar_crimes") as mock_crimes,
     ):
+        mock_crimes.return_value = None
+
         import src.pepiline as pipeline
 
-        arquivos = pipeline.listar_arquivos_populacao("./data/planilha")
-        df = pipeline.consolidar_historico(arquivos)
-        pipeline.salvar_historico_csv(df, "./data/output/x.csv")
+        pipeline.main()
 
-        mock_salvar.assert_called_once()
+        # Como a lista de planilhas está vazia, processar_crimes NÃO deve ser chamado
+        mock_crimes.assert_not_called()

@@ -83,7 +83,6 @@ def detectar_extensao(content_type: str):
     # Desconhecido
     return ".bin", "./data/outros"
 
-
 def download_arquivo(url: str, nome_arquivo: str):
     start = time.time()
     logger.info(f"Iniciando download: {nome_arquivo}")

@@ -2,6 +2,7 @@ import os
 import re
 import pandas as pd
 from pathlib import Path
+from typing import Iterable, Sequence
 from util.log import logs
 
 logger = logs()
@@ -76,24 +77,55 @@ def limpar_populacao(valor) -> int | None:
     valor = re.sub(r"[^\d]", "", str(valor))
     return int(valor) if valor else None
 
-
-def listar_arquivos_populacao(
-    diretorio: str = "./data/planilha",
+def listar_arquivos_por_padrao(
+    diretorio: str,
+    padroes: Iterable[str],
+    extensoes: Sequence[str] = (".xls", ".xlsx"),
 ) -> list[str]:
-    padroes = ("pop", "populacao", "estimativa",'uf_')
-    extensoes = (".xls", ".xlsx")
+    """
+    Lista arquivos em um diretório com base em padrões no nome e extensões permitidas.
+    """
+    caminho = Path(diretorio)
 
-    arquivos = []
+    if not caminho.exists() or not caminho.is_dir():
+        return []
 
-    for path in Path(diretorio).iterdir():
-        if (
-            path.is_file()
-            and path.suffix.lower() in extensoes
-            and any(p in path.name.lower() for p in padroes)
-        ):
-            arquivos.append(str(path))
+    arquivos: list[str] = []
+
+    for path in caminho.iterdir():
+        if not path.is_file():
+            continue
+
+        nome = path.name.lower()
+
+        if path.suffix.lower() not in extensoes:
+            continue
+
+        if not any(p in nome for p in padroes):
+            continue
+
+        arquivos.append(str(path))
 
     return sorted(arquivos)
+
+def listar_arquivos_populacao(diretorio: str) -> list[str]:
+    padroes = ("pop", "populacao", "estimativa", "uf_")
+    return listar_arquivos_por_padrao(diretorio, padroes)
+
+
+def listar_arquivos_crimes(diretorio: str) -> list[str]:
+    padroes = (
+        "roubo",
+        "racismo",
+        "lesao",
+        "latro",
+        "injuria",
+        "homi",
+        "furto",
+        "feminicidio",
+        "crime",
+    )
+    return listar_arquivos_por_padrao(diretorio, padroes)
 
 
 def processar_arquivo(caminho: str) -> pd.DataFrame:
@@ -118,6 +150,43 @@ def processar_arquivo(caminho: str) -> pd.DataFrame:
             "arquivo": [nome],
         }
     )
+
+
+def processar_dados_crimes(caminho: str) -> pd.DataFrame:
+    logger.info("Processando arquivo de crimes: %s", caminho)
+
+    try:
+        xls = pd.ExcelFile(caminho)
+
+       
+        sheet_index = 1 if len(xls.sheet_names) > 1 else 0
+        header = 2 if sheet_index > 0 else 0
+
+        df = pd.read_excel(
+            xls,
+            sheet_name=sheet_index,
+            header=header,
+        )
+
+        df = normalizar_colunas(df)
+
+        if df.empty:
+            logger.warning("Arquivo de crimes sem dados válidos: %s", caminho)
+            return pd.DataFrame()
+
+        df["arquivo"] = os.path.basename(caminho)
+
+        logger.info(
+            "Arquivo de crimes processado com sucesso: %s (%d registros)",
+            caminho,
+            len(df),
+        )
+
+        return df
+
+    except Exception as exc:
+        logger.exception("Erro ao processar arquivo de crimes: %s", caminho)
+        raise exc
 
 
 def consolidar_historico(lista_arquivos: list[str]) -> pd.DataFrame:
@@ -172,3 +241,18 @@ def salvar_historico_csv(
     )
 
     logger.info(f"Arquivo CSV salvo com sucesso em: {path}")
+    
+def processar_populacao():
+    arquivos = listar_arquivos_populacao("./data/planilha")
+    df_historico = consolidar_historico(arquivos)
+    salvar_historico_csv(df_historico, "./data/csv/populacao_df_historico.csv")
+
+
+def processar_crimes(caminho_planilhas: Path, caminho_saida: Path):
+    arquivos = listar_arquivos_crimes(caminho_planilhas)
+    arquivos = [a for a in arquivos if not Path(a).name.startswith("~$")]
+
+    for arquivo in arquivos:
+        nome_csv = Path(arquivo).stem + ".csv"
+        df = processar_dados_crimes(arquivo)
+        salvar_historico_csv(df, caminho_saida / nome_csv)   

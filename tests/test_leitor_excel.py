@@ -1,8 +1,7 @@
-import os
 import pandas as pd
 import pytest
-from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from util.leitor_excel import processar_dados_crimes, processar_populacao, processar_crimes
 
 from util.leitor_excel import (
     extrair_ano,
@@ -14,6 +13,8 @@ from util.leitor_excel import (
     processar_arquivo,
     consolidar_historico,
     salvar_historico_csv,
+    listar_arquivos_por_padrao,
+    listar_arquivos_crimes,
 )
 
 
@@ -30,7 +31,9 @@ def test_extrair_ano_explicito():
 
 
 def test_extrair_ano_nao_encontrado_retorna_2010(caplog):
-    ano = extrair_ano("arquivo_sem_ano.xls")
+    with caplog.at_level("WARNING"):
+        ano = extrair_ano("arquivo_sem_ano.xls")
+
     assert ano == 2010
     assert "Ano não identificado" in caplog.text
 
@@ -99,8 +102,16 @@ def test_encontrar_coluna_populacao_erro():
 # =====================================================
 # 🧽 limpar_populacao
 # =====================================================
-def test_limpar_populacao_valido():
-    assert limpar_populacao("1.234.567") == 1234567
+@pytest.mark.parametrize(
+    "valor, esperado",
+    [
+        ("1.234.567", 1234567),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_limpar_populacao(valor, esperado):
+    assert limpar_populacao(valor) == esperado
 
 
 def test_limpar_populacao_none():
@@ -132,6 +143,73 @@ def test_listar_arquivos_populacao(tmp_path):
     for nome in arquivos_validos:
         assert any(nome in r for r in resultado)
 
+def test_listar_arquivos_por_padrao_diretorio_inexistente(tmp_path):
+    resultado = listar_arquivos_por_padrao(
+        tmp_path / "nao_existe",
+        padroes=("pop",),
+    )
+
+    assert resultado == []
+
+def test_listar_arquivos_por_padrao_diretorio_vazio(tmp_path):
+    resultado = listar_arquivos_por_padrao(
+        tmp_path,
+        padroes=("pop",),
+    )
+
+    assert resultado == []
+
+def test_listar_arquivos_diretorio_inexistente(tmp_path):
+    resultado = listar_arquivos_populacao(tmp_path / "nao_existe")
+    assert resultado == []
+
+def test_listar_arquivos_diretorio_vazio(tmp_path):
+    resultado = listar_arquivos_populacao(tmp_path)
+    assert resultado == []
+
+def test_listar_arquivos_ignora_extensao_invalida(tmp_path):
+    arquivo = tmp_path / "populacao.txt"
+    arquivo.write_text("fake")
+
+    resultado = listar_arquivos_populacao(tmp_path)
+    assert resultado == []
+
+def test_listar_arquivos_nome_sem_padrao(tmp_path):
+    arquivo = tmp_path / "dados.xlsx"
+    arquivo.write_text("fake")
+
+    resultado = listar_arquivos_populacao(tmp_path)
+    assert resultado == []
+
+def test_listar_arquivos_crimes(tmp_path):
+    arquivos = [
+        "roubo_2020.xls",
+        "homicidio_2019.xlsx",
+        "crime_total.xls",
+        "populacao.xls",  # inválido
+    ]
+
+    for nome in arquivos:
+        (tmp_path / nome).touch()
+
+    resultado = listar_arquivos_crimes(tmp_path)
+
+    assert len(resultado) == 3
+    assert all("populacao" not in r for r in resultado)
+
+def test_listar_arquivos_ignora_subdiretorios(tmp_path):
+    # cria subdiretório
+    (tmp_path / "subdir").mkdir()
+
+    # cria arquivo válido também (para garantir iteração mista)
+    (tmp_path / "pop_2020.xls").touch()
+
+    resultado = listar_arquivos_populacao(tmp_path)
+
+    # só o arquivo deve aparecer
+    assert len(resultado) == 1
+    assert "pop_2020.xls" in resultado[0]
+
 
 # =====================================================
 # 🧠 processar_arquivo
@@ -162,6 +240,13 @@ def test_processar_arquivo_df_vazio(tmp_path):
         df = processar_arquivo(str(arquivo))
 
     assert df.empty
+
+def test_processar_arquivo_erro_read_excel(tmp_path):
+    arquivo = tmp_path / "pop_2010.xls"
+
+    with patch("util.leitor_excel.pd.read_excel", side_effect=Exception("boom")):
+        with pytest.raises(Exception):
+            processar_arquivo(str(arquivo))
 
 
 # =====================================================
@@ -228,3 +313,148 @@ def test_salvar_historico_csv_df_vazio(caplog, tmp_path):
     salvar_historico_csv(df, tmp_path / "x.csv")
 
     assert "DataFrame vazio" in caplog.text
+
+def test_salvar_historico_csv_log_sucesso(caplog, tmp_path):
+    df = pd.DataFrame(
+        {
+            "ano": [2021],
+            "uf": ["DF"],
+            "localidade": ["Distrito Federal"],
+            "populacao": [300],
+            "arquivo": ["a.xls"],
+        }
+    )
+
+    caminho = tmp_path / "out.csv"
+    salvar_historico_csv(df, caminho)
+
+    assert "Arquivo CSV salvo com sucesso" in caplog.text
+
+def test_salvar_historico_csv_chama_logger_info(tmp_path):
+    df = pd.DataFrame(
+        {
+            "ano": [2021],
+            "uf": ["DF"],
+            "localidade": ["Distrito Federal"],
+            "populacao": [300],
+            "arquivo": ["a.xls"],
+        }
+    )
+
+    caminho = tmp_path / "out.csv"
+
+    with patch("util.leitor_excel.logger.info") as mock_info:
+        salvar_historico_csv(df, caminho)
+
+    mock_info.assert_called_once()
+# =====================================================
+# 📂 listar_arquivos_crimes
+# =====================================================
+def test_listar_arquivos_crimes(tmp_path):
+    arquivos_validos = [
+        "roubo_2020.xls",
+        "homicidio_2019.xlsx",
+        "crime_total.xls",
+    ]
+    arquivos_invalidos = ["populacao.xls", "teste.txt"]
+
+    for nome in arquivos_validos + arquivos_invalidos:
+        (tmp_path / nome).touch()
+
+    resultado = listar_arquivos_crimes(tmp_path)
+    assert len(resultado) == len(arquivos_validos)
+    for nome in arquivos_validos:
+        assert any(nome in r for r in resultado)
+
+
+# =====================================================
+# 🧠 processar_dados_crimes
+# =====================================================
+def test_processar_dados_crimes_fluxo_completo(tmp_path):
+    arquivo = tmp_path / "crimes_2020.xlsx"
+    df_fake = pd.DataFrame({"crime": [1, 2]})
+
+    mock_xls = MagicMock()
+    mock_xls.sheet_names = ["Sheet1"]
+
+    with patch("util.leitor_excel.pd.ExcelFile", return_value=mock_xls):
+        with patch("util.leitor_excel.pd.read_excel", return_value=df_fake):
+            df = processar_dados_crimes(str(arquivo))  # <-- corrigido
+
+    assert not df.empty
+    assert "arquivo" in df.columns
+    assert len(df) == 2
+
+
+def test_processar_dados_crimes_vazio(tmp_path, caplog):
+    arquivo = tmp_path / "crimes_2020.xlsx"
+    df_fake = pd.DataFrame()
+
+    mock_xls = MagicMock()
+    mock_xls.sheet_names = ["Sheet1"]
+
+    with patch("util.leitor_excel.pd.ExcelFile", return_value=mock_xls):
+        with patch("util.leitor_excel.pd.read_excel", return_value=df_fake):
+            with caplog.at_level("WARNING"):
+                df = processar_dados_crimes(str(arquivo))  # <-- corrigido
+
+    assert df.empty
+    assert "Arquivo de crimes sem dados válidos" in caplog.text
+
+
+def test_processar_dados_crimes_erro(tmp_path):
+    arquivo = tmp_path / "crimes_2020.xlsx"
+
+    with patch("util.leitor_excel.pd.ExcelFile", side_effect=Exception("boom")):
+        with pytest.raises(Exception):
+            processar_dados_crimes(str(arquivo))
+
+
+# =====================================================
+# ✅ listar_arquivos_por_padrao com mocks Path
+# =====================================================
+def test_listar_arquivos_por_padrao_misto(tmp_path):
+    (tmp_path / "pop_2010.xls").touch()
+    (tmp_path / "dados.csv").touch()
+    (tmp_path / "subdir").mkdir()
+
+    resultado = listar_arquivos_por_padrao(tmp_path, padroes=("pop",))
+    assert len(resultado) == 1
+    assert "pop_2010.xls" in resultado[0]
+def test_processar_populacao_fluxo_completo(tmp_path):
+    # Mock das funções internas
+    with patch(
+        "util.leitor_excel.listar_arquivos_populacao", return_value=[tmp_path / "a.xls"]
+    ):
+        with patch(
+            "util.leitor_excel.consolidar_historico",
+            return_value=MagicMock(empty=False),
+        ):
+            with patch("util.leitor_excel.salvar_historico_csv") as mock_salvar:
+                processar_populacao()
+                mock_salvar.assert_called_once()
+
+
+def test_processar_crimes_fluxo_completo(tmp_path):
+    # Cria arquivos fake
+    arquivo1 = tmp_path / "crime1.xls"
+    arquivo2 = tmp_path / "~$temp_crime2.xls"  # deve ser ignorado
+    arquivo1.write_text("fake")
+    arquivo2.write_text("fake")
+
+    caminho_saida = tmp_path / "saida"
+    caminho_saida.mkdir()
+
+    with patch(
+        "util.leitor_excel.listar_arquivos_crimes", return_value=[arquivo1, arquivo2]
+    ):
+        with patch(
+            "util.leitor_excel.processar_dados_crimes",
+            return_value=MagicMock(empty=False),
+        ) as mock_processar:
+            with patch("util.leitor_excel.salvar_historico_csv") as mock_salvar:
+                processar_crimes(tmp_path, caminho_saida)
+
+                # Apenas arquivo1 deve ser processado
+                mock_processar.assert_called_once_with(arquivo1)
+                assert mock_salvar.call_count == 1
