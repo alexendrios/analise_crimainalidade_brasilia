@@ -11,4 +11,4 @@ def test_normalizar_df():
     df_norm = normalizar_df(df)
 
     assert list(df_norm.columns) == ["região administrativa", "população"]
-    assert df_norm.loc[0, "população"] == "35000"
+    assert df_norm.loc[0, "população"] == 35000
