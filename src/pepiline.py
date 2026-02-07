@@ -6,13 +6,17 @@ from util.leitor_excel import processar_populacao, processar_crimes
 from util.log import logs
 from pathlib import Path
 from src.tratamento_populacao_df_csv import analisar_populacao
-from src.criacao_leirura_csv import transformacao_dados_csv
 from src.tratamento_crimes_csv import (
     tratar_feminicidio, 
     tratar_desaparecidos_idade_sexo, 
     tratar_desaparecidos_localizados, 
     tratar_desaparecidos_regiao,
-    tratar_furto_veiculo
+    tratar_furto_veiculo,
+    tratar_crimes_contra_mulher,
+    tratar_homicidio,
+    tratar_violencia_idosos,
+    tratar_crimes_idosos_ranking,
+    crimes_idosos_por_mes
     
     )
 
@@ -41,22 +45,18 @@ def main():
     # Gerando  artefatos -> Onde o mesno será utilizado no DB
     # analisar_populacao()
     # logger.info("Ciando dados para CSV de população por RA...")
+    
     # arquivo_entr_reg_adm_df = Path("./data/csv/ra_df_populacao.csv")
-    # arquivo_saida_reg_adm_df = Path("./data/output/ra_df_populacao_salvo.csv")
+    #arquivo_saida_reg_adm_df = Path("./data/output/ra_df_populacao_salvo.csv")
     
-    # transformacao_dados_csv(
-    #     arquivo_entr_reg_adm_df, arquivo_saida_reg_adm_df, ','
-    # )
-    
-    # Crimes contra a mulher
-    # logger.info("Ciando dados para CSV de crimes contra a mulher por RA...")
-    # arquivo_entr_crimes_mulher = Path("./data/csv/crimes-contra-mulher.csv")
-    # arquivo_saida_crimes_mulher = Path("./data/output/crimes-contra-mulher.csv")
-    
-    # transformacao_dados_csv(
-    #     arquivo_entr_crimes_mulher, arquivo_saida_crimes_mulher,';'
-    # )
-    
+    # crimes contra mulher
+    logger.info("Ciando dados para CSV de crimes contra mulher por RA...")
+    tratar_crimes_contra_mulher(
+        "./data/csv/crimes-contra-mulher.csv",
+        "./data/output/crimes-contra-mulher_tratado.csv",
+    )
+ 
+
     # feminicidio
     logger.info("Ciando dados para CSV de feminicídio por RA...")
 
@@ -88,8 +88,23 @@ def main():
     ARQUIVO_SAIDA = Path("./data/output/furto_em_veiculo_tratado.csv")
     tratar_furto_veiculo(ARQUIVO_ENTRADA, ARQUIVO_SAIDA)
     
+
+    
+    tratar_homicidio("./data/csv/homicidio.csv", "./data/output/homicidio_tratado.csv")
+    
+    tratar_violencia_idosos(
+        "./data/csv/idosos_7_anos.csv",
+        ["./data/output/idosos_tabela4.csv", "./data/output/idosos_tabela5.csv"],
+    )
+
+
+    tratar_crimes_idosos_ranking(
+        "./data/csv/idosos_2016.csv", "./data/output/idosos_2016_tratado.csv"
+    )
+    
+    crimes_idosos_por_mes("./data/csv/idosos_mensais.csv", ['registro', 'fato'], "./data/output/idosos_mensais_tratado.csv")
     logger.info("Pipeline finalizado com sucesso!")
     logger.info("===== FIM DO PROCESSO =====")
-
+    
 if __name__ == "__main__":  # pragma: no cover
     main()
