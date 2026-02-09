@@ -1,12 +1,10 @@
 # src/pepiline.py
-from src.busca import coletar_dados_
-from src.scraping import obter_dados_ra_populacao
 from util.extrator_zip import arquivos_zip_execucao
 from util.leitor_excel import processar_populacao, processar_crimes
-from util.log import logs
-from pathlib import Path
-from src.tratamento_populacao_df_csv import analisar_populacao
-from src.tratamento_crimes_csv import (
+from src.busca import coletar_dados_
+from src.scraping import obter_dados_ra_populacao
+from src.tratamento_populacional import analisar_populacao
+from src.tratamento_crimes import (
     tratar_feminicidio, 
     tratar_desaparecidos_idade_sexo, 
     tratar_desaparecidos_localizados, 
@@ -16,9 +14,15 @@ from src.tratamento_crimes_csv import (
     tratar_homicidio,
     tratar_violencia_idosos,
     tratar_crimes_idosos_ranking,
-    crimes_idosos_por_mes
+    crimes_idosos_por_mes,
+    tratar_injuria_racial_por_regiao,
+    tratar_latrocinio_por_regiao,
+    tratar_lesao_corporal_morte_por_regiao,
+    tratar_lesao_corporal_morte
     
     )
+from util.log import logs
+from pathlib import Path
 
 logger = logs()
 
@@ -50,16 +54,12 @@ def main():
     #arquivo_saida_reg_adm_df = Path("./data/output/ra_df_populacao_salvo.csv")
     
     # crimes contra mulher
-    logger.info("Ciando dados para CSV de crimes contra mulher por RA...")
     tratar_crimes_contra_mulher(
         "./data/csv/crimes-contra-mulher.csv",
         "./data/output/crimes-contra-mulher_tratado.csv",
     )
  
-
     # feminicidio
-    logger.info("Ciando dados para CSV de feminicídio por RA...")
-
     arquivo_entr_feminicidio = Path("./data/csv/feminicidio.csv")
     arquivo_saida_feminicidio = Path("./data/output/feminicidio.csv")    
  
@@ -88,8 +88,6 @@ def main():
     ARQUIVO_SAIDA = Path("./data/output/furto_em_veiculo_tratado.csv")
     tratar_furto_veiculo(ARQUIVO_ENTRADA, ARQUIVO_SAIDA)
     
-
-    
     tratar_homicidio("./data/csv/homicidio.csv", "./data/output/homicidio_tratado.csv")
     
     tratar_violencia_idosos(
@@ -103,6 +101,25 @@ def main():
     )
     
     crimes_idosos_por_mes("./data/csv/idosos_mensais.csv", ['registro', 'fato'], "./data/output/idosos_mensais_tratado.csv")
+    
+    tratar_injuria_racial_por_regiao(
+        "./data/csv/injuria-racial.csv", "./data/output/injuria_racial_tratado.csv"
+    )
+    
+    tratar_latrocinio_por_regiao(
+        "data/csv/latrocinio.csv", "data/output/latrocinio_tratado.csv"
+    )
+    
+    tratar_lesao_corporal_morte_por_regiao(
+        "data/csv/lesao-corporal-morte.csv",
+        "data/output/lesao_corporal_morte_tratada.csv",
+    )
+    
+    tratar_lesao_corporal_morte(
+        "data/csv/lesao-corporal-morte.csv",
+        "data/output/lesao_corporal_morte_tratada.csv",
+    )
+    
     logger.info("Pipeline finalizado com sucesso!")
     logger.info("===== FIM DO PROCESSO =====")
     

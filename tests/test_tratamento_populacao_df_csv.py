@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock, patch
 
-import src.tratamento_populacao_df_csv as populacao
+import tratamento_populacional as populacao
 from statsmodels.tools.sm_exceptions import MissingDataError
 
 
@@ -524,7 +524,7 @@ def test_analisar_populacao_preenche_faltante_com_arima(monkeypatch):
 def test_adiciona_coluna_rmse_quando_ausente():
     import pandas as pd
     import numpy as np
-    from src.tratamento_populacao_df_csv import garantir_coluna_rmse
+    from tratamento_populacional import garantir_coluna_rmse
 
     df = pd.DataFrame(
         {

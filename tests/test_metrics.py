@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from src.tratamento_populacao_df_csv import mae, rmse, mape, smape
+from tratamento_populacional import mae, rmse, mape, smape
 
 
 def test_mae_rmse_mape_smape():

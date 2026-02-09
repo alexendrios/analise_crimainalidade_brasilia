@@ -485,3 +485,250 @@ def crimes_idosos_por_mes(arquivo_entrada, tipos, arquivo_saida):
     df_pivot["subnotificacao"] = df_pivot["registro"] - df_pivot["fato"]
 
     df_pivot.to_csv(arquivo_saida, index=False)
+
+def tratar_injuria_racial_por_regiao(
+    caminho_arquivo_entrada: str, caminho_arquivo_saida: str
+):
+
+    df_raw = pd.read_csv(
+        caminho_arquivo_entrada, sep=";", encoding="latin1", header=None, dtype=str
+    )
+
+    df_raw = df_raw.drop(columns=[0], errors="ignore")
+
+    linha_header = None
+    for i, row in df_raw.iterrows():
+        valores = row.astype(str).tolist()
+        if any("2015" in v for v in valores) and any("2024" in v for v in valores):
+            linha_header = i
+            break
+
+    if linha_header is None:
+        raise ValueError("❌ Header não encontrado no CSV")
+
+    df = df_raw.iloc[linha_header + 1 :].copy()
+    df = df.dropna(how="all")
+
+    df = df.iloc[:, :12]
+
+    df.columns = [
+        "regiao",
+        "2015",
+        "2016",
+        "2017",
+        "2018",
+        "2019",
+        "2020",
+        "2021",
+        "2022",
+        "2023",
+        "2024",
+        "variacao_2015_2024",
+    ]
+    
+    df = df.drop(columns=["variacao_2015_2024"], errors="ignore")
+
+    df = df[df["regiao"].notna()]
+    df = df[
+        ~df["regiao"].str.contains("Total|Fonte", case=False, na=False)
+    ]
+    
+    df["regiao"] = (
+        df["regiao"]
+        .str.encode("latin1")
+        .str.decode("utf-8", errors="ignore")
+        .str.strip()
+    )
+    
+    for col in df.columns[1:]:
+        df[col] = pd.to_numeric(df[col], errors="coerce")
+    
+    df = df.fillna(0)
+
+    df.to_csv(caminho_arquivo_saida, index=False, encoding="utf-8")
+
+def tratar_latrocinio_por_regiao(
+    caminho_arquivo_entrada: str, caminho_arquivo_saida: str
+):
+
+    df_raw = pd.read_csv(
+        caminho_arquivo_entrada, sep=";", encoding="latin1", header=None, dtype=str
+    )
+
+    df_raw = df_raw.dropna(axis=1, how="all")
+    df_raw = df_raw.drop(columns=[0, 12, 13, 14], errors="ignore")
+
+    linha_header = None
+    for i, row in df_raw.iterrows():
+        valores = row.astype(str).tolist()
+        if any("2015" in v for v in valores) and any("2024" in v for v in valores):
+            linha_header = i
+            break
+
+    if linha_header is None:
+        raise ValueError("❌ Header não encontrado no CSV")
+
+    df = df_raw.iloc[linha_header + 1 :].copy()  # 🔥 remove o header dos dados
+    df.columns = [
+        "regiao",
+        "2015",
+        "2016",
+        "2017",
+        "2018",
+        "2019",
+        "2020",
+        "2021",
+        "2022",
+        "2023",
+        "2024",
+    ]
+    
+
+    df = df[df["regiao"].notna()]
+
+    # '-' , NaN, vazio → 0
+    df.replace(["-", "", "nan", "None"], 0, inplace=True)
+    df = df.fillna(0)
+
+    for col in df.columns[1:]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+        
+    df["regiao"] = (
+        df["regiao"]
+        .str.encode("latin1")
+        .str.decode("utf-8", errors="ignore")
+        .str.strip()
+    )
+
+    df.to_csv(caminho_arquivo_saida, index=False, encoding="utf-8")
+
+def tratar_lesao_corporal_morte_por_regiao(caminho_entrada: str, caminho_saida: str):
+    import pandas as pd
+
+    df_raw = pd.read_csv(caminho_entrada, sep=";", encoding="latin1", dtype=str)
+
+    col = [
+        "ï»¿unnamed:_0",
+        "unnamed:_12",
+        "unnamed:_13",
+        "arquivo",
+    ]
+    df_raw = df_raw.drop(columns=col, errors="ignore")
+
+    linha_header = None
+    for i, row in df_raw.iterrows():
+        valores = row.astype(str).tolist()
+        if any("2015" in v for v in valores) and any("2024" in v for v in valores):
+            linha_header = i
+            break
+
+    if linha_header is None:
+        raise ValueError("❌ Header não encontrado no CSV")
+
+    # ⬇️ PULA A LINHA DO HEADER
+    df = df_raw.iloc[linha_header + 1 :].copy()
+
+    df.columns = [
+        "regiao",
+        "2015",
+        "2016",
+        "2017",
+        "2018",
+        "2019",
+        "2020",
+        "2021",
+        "2022",
+        "2023",
+        "2024",
+    ]
+
+    df = df[df["regiao"].notna()]
+    df = df[df["regiao"] != "Região Administrativa"]
+
+    df.replace(["-", "", "nan", "None"], 0, inplace=True)
+    df = df.fillna(0)
+
+    for col in df.columns[1:]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+
+    df["regiao"] = (
+        df["regiao"]
+        .str.encode("latin1")
+        .str.decode("utf-8", errors="ignore")
+        .str.strip()
+    )
+    
+    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+
+def tratar_lesao_corporal_morte(caminho_entrada: str, caminho_saida: str):
+
+    # =========================
+    # 1. Leitura bruta
+    # =========================
+    df_raw = pd.read_csv(
+        caminho_entrada, sep=";", encoding="latin1", header=None, dtype=str
+    )
+
+    # Remove colunas completamente vazias
+    df_raw = df_raw.dropna(axis=1, how="all")
+    col = [0, 12, 13, 14]
+    df_raw = df_raw.drop(columns=col, errors="ignore")
+    
+    # =========================
+    # 2. Localizar header real
+    # =========================
+    linha_header = None
+    for i, row in df_raw.iterrows():
+        valores = row.astype(str).tolist()
+        if any("2015" in v for v in valores) and any("2024" in v for v in valores):
+            linha_header = i
+            break
+
+    if linha_header is None:
+        raise ValueError("❌ Header não encontrado no CSV")
+
+   
+ 
+    df = df_raw.iloc[linha_header + 1 :].copy()
+
+    df.columns = [
+        "regiao",
+        "2015",
+        "2016",
+        "2017",
+        "2018",
+        "2019",
+        "2020",
+        "2021",
+        "2022",
+        "2023",
+        "2024",
+    ]
+    
+    df = df[df["regiao"].notna()]
+    df = df[df["regiao"] != "Região Administrativa"]
+
+    df.replace(["-", "", "nan", "None"], 0, inplace=True)
+    df = df.fillna(0)
+
+    for col in df.columns[1:]:
+        df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(int)
+
+    df["regiao"] = (
+        df["regiao"]
+        .str.encode("latin1")
+        .str.decode("utf-8", errors="ignore")
+        .str.strip()
+    )
+    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+
+
+'''
+Falta implantar:
+1 - racismo
+2 - roubo de pedestre
+3 - roubo de veículos
+4 - roubo ao comercios
+5 - robo ao transporte coletivo
+
+'''
