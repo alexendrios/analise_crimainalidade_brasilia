@@ -3,7 +3,6 @@ import numpy as np
 import itertools
 import warnings
 from pathlib import Path
-
 from statsmodels.tsa.statespace.sarimax import SARIMAX
 from statsmodels.tsa.stattools import adfuller, acf, pacf
 from statsmodels.stats.diagnostic import acorr_ljungbox
@@ -446,3 +445,23 @@ def analisar_populacao():
     melhor_modelo = cv_results.iloc[0]["modelo"]    
     logger.info(f"Melhor modelo segundo CV: {melhor_modelo}")
     return df
+
+def tratar_populacao_regiao_administrativa(arquivo_entrada: str, arquivo_saida: str):
+    logger.info(
+        "Iniciando tratamento de dados de população | arquivo de entrada: %s",
+        arquivo_entrada,
+    )
+
+    # Leitura do CSV
+    df = pd.read_csv(arquivo_entrada)
+    logger.debug(
+        "Arquivo lido com sucesso | linhas=%d | colunas=%d", df.shape[0], df.shape[1]
+    )
+
+    # Salvar CSV tratado
+    df.to_csv(arquivo_saida, sep=";", index=False)
+    logger.info(
+        "Tratamento de dados de população concluído | CSV salvo em: %s", arquivo_saida
+    )
+
+

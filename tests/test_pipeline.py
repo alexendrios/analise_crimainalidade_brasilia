@@ -37,7 +37,7 @@ def test_pipeline_fluxo_completo():
         mock_crimes.return_value = None
 
         # Importação tardia para executar o __main__ do pepiline
-        import src.pepiline as pipeline
+        import pipeline as pipeline
 
         pipeline.main()
 
@@ -62,7 +62,7 @@ def test_pipeline_crimes_lista_vazia():
     ):
         mock_crimes.return_value = None
 
-        import src.pepiline as pipeline
+        import pipeline as pipeline
 
         pipeline.main()
 

@@ -1,3 +1,4 @@
+# src/busca.py
 from util.arquivos import limpar_diretorios
 from src.coleta_gdf import coleta_dados
 from name_arquivos.names import (
