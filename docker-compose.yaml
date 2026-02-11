@@ -1,0 +1,22 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: postgres
+    environment:
+      POSTGRES_DB: criminalidade_db
+      POSTGRES_USER: criminalidade_user
+      POSTGRES_PASSWORD: criminalidade_pass
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - oracle_net
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  oracle_net:
+    external: true

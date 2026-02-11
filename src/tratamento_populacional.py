@@ -103,7 +103,16 @@ def grid_search_sarimax(serie, d):
             rows.append({"p": p, "d": d, "q": q, "aic": fit.aic, "bic": fit.bic})
         except Exception:
             continue
-    df = pd.DataFrame(rows).sort_values("aic")
+
+    df = pd.DataFrame(rows)
+
+    # 🔥 CORREÇÃO AQUI
+    if df.empty:
+        df = pd.DataFrame(columns=["p", "d", "q", "aic", "bic"])
+        df.to_csv(OUTPUT / "grid_sarimax.csv", sep=";", index=False)
+        return df
+
+    df = df.sort_values("aic")
     df.to_csv(OUTPUT / "grid_sarimax.csv", sep=";", index=False)
     return df
 
@@ -315,10 +324,10 @@ def analisar_populacao():
         logger.info(f"Preenchendo {len(faltantes)} linhas faltantes com previsões ARIMA...")
         df_bt_arima = bt_arima_temp  # já contém colunas 'ano' e 'previsto'
         for idx, row in faltantes.iterrows():
-            ano_faltante = pd.to_datetime(row["ano"]).year
+            ano_faltante = int(row["ano"])
             match = df_bt_arima[df_bt_arima["ano"] == ano_faltante]
             if not match.empty:
-                df.at[idx, "populacao"] = match["previsto"].iloc[0]
+                df.at[idx, "populacao"] = match["previsto"].iloc[0] 
 
     df.to_csv(OUTPUT / "df_analise_populacao.csv", sep=";", index=False)
     logger.info(
