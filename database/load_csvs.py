@@ -1,35 +1,70 @@
+# database/load_csvs.py
+
+from database.connection import obter_engine, close_engine
+from database.repository.repository import inserir_dados
+from util.log import logs
 import pandas as pd
-from database.repository.repository import salvar_tabela, logger
+import time
+
+
+logger = logs()
 
 arquivos = {
     "./data/output/crimes-contra-mulher_tratado.csv": "crimes_contra_mulher",
     "./data/output/desaparecidos_idade_sexo_tratado.csv": "desaparecidos_idade_sexo",
     "./data/output/desaparecimento-localizados_tratado.csv": "desaparecimento_localizados",
     "./data/output/desaparecimento-regiao_tratado.csv": "desaparecimento_regiao",
-    "./data/output/df_analise_populacao.csv": "analise_populacao",
+    "./data/output/df_analise_populacao.csv": "populacao_df",
     "./data/output/feminicidio.csv": "feminicidio",
     "./data/output/furto_em_veiculo_tratado.csv": "furto_em_veiculo",
     "./data/output/homicidio_tratado.csv": "homicidio",
-    "./data/output/idosos_2016_tratado.csv": "idosos",
-    "./data/output/idosos_mensais_tratado.csv": "idosos_mensais",
-    "./data/output/idosos_tabela4.csv": "idosos_ocorrencias",
-    "./data/output/idosos_tabela5.csv": "idosos_sexo",
+    "./data/output/idosos_2016_tratado.csv": "violencia_idosos",
+    "./data/output/idosos_mensais_tratado.csv": "violencia_idosos_mensais",
+    "./data/output/idosos_tabela4.csv": "violencia_idosos_ocorrencias",
+    "./data/output/idosos_tabela5.csv": "violencia_idosos_sexo",
     "./data/output/injuria_racial_tratado.csv": "injuria_racial",
     "./data/output/latrocinio_tratado.csv": "latrocinio",
     "./data/output/lesao_corporal_morte_tratada.csv": "lesao_corporal_morte",
-    "./data/output/ra_df_populacao_tratado.csv": "populacao"
+    "./data/output/ra_df_populacao_tratado.csv": "populacao_regiao_administrativa",
+    "./data/output/racismo_tratado.csv": "racismo",
+    "./data/output/roubo_comercio.csv": "roubo_comercio",
+    "./data/output/roubo_transporte_coletivo_tratado.csv": "roubo_transporte_coletivo",
+    "./data/output/roubo_veiculo_tratado.csv": "roubo_veiculo",
+    "./data/output/roubo-a-transeunte_tratado.csv": "roubo_pedestre",
 }
 
 
-def carregar_csv_para_banco():
-    for arquivo in arquivos:
-        try:
-            df = pd.read_csv(arquivo,sep=';', encoding='utf-8')
-            logger.info(f"Arquivo {arquivo} lido com sucesso.")
-            print(df.head(10))
-        except Exception as e:
-            logger.error(f"Erro ao carregar o arquivo {arquivo}: {e}")
-     
+def salvar_tabela():
+    logger.info("🚀 Iniciando processo de carga dos arquivos CSV.")
 
-if __name__ == "__main__":
-    carregar_csv_para_banco()
+    for arquivo, tabela in arquivos.items():
+        inicio = time.time()
+
+        try:
+            logger.info(f"📄 Lendo arquivo: {arquivo}")
+
+            df = pd.read_csv(arquivo, sep=";", encoding="utf-8")
+
+            logger.info(
+                f"✅ Arquivo lido com sucesso | "
+                f"Linhas: {len(df)} | Colunas: {len(df.columns)}"
+            )
+
+            inserir_dados(df, tabela)
+
+            tempo_execucao = round(time.time() - inicio, 2)
+
+            logger.info(
+                f"📊 Arquivo processado | Tabela: {tabela} | Tempo: {tempo_execucao}s"
+            )
+
+        except pd.errors.ParserError as e:
+            logger.error(f"❌ Erro de parsing no arquivo {arquivo}: {e}", exc_info=True)
+
+        except Exception as e:
+            logger.error(
+                f"❌ Erro inesperado ao processar {arquivo}: {e}", exc_info=True
+            )
+
+    logger.info("🏁 Processo de carga finalizado.")
+

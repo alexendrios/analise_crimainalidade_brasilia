@@ -1097,7 +1097,6 @@ def tratar_latrocinio_por_regiao(
         caminho_arquivo_saida,
     )
 
-
 def tratar_lesao_corporal_morte_por_regiao(caminho_entrada: str, caminho_saida: str):
     logger.info(
         "Iniciando tratamento de lesão corporal seguida de morte por região | entrada=%s | saida=%s",
@@ -1179,12 +1178,11 @@ def tratar_lesao_corporal_morte_por_regiao(caminho_entrada: str, caminho_saida: 
     )
     logger.debug("Normalização de encoding aplicada na coluna regiao")
 
-    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Arquivo final de lesão corporal seguida de morte por região gerado com sucesso | caminho=%s",
         caminho_saida,
     )
-
 
 def tratar_lesao_corporal_morte(caminho_entrada: str, caminho_saida: str):
     logger.info(
@@ -1267,12 +1265,11 @@ def tratar_lesao_corporal_morte(caminho_entrada: str, caminho_saida: str):
     )
     logger.debug("Normalização de encoding aplicada na coluna regiao")
 
-    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Arquivo final de lesão corporal seguida de morte gerado com sucesso | caminho=%s",
         caminho_saida,
     )
-
 
 def tratar_racismo(caminho_entrada: str, caminho_saida: str):
     logger.info(
@@ -1376,12 +1373,11 @@ def tratar_racismo(caminho_entrada: str, caminho_saida: str):
     df = df[df["regiao"] != "Região Administrativa"]
     logger.debug("Região Administrativa removida do dataset")
 
-    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Arquivo final de racismo por região gerado com sucesso | caminho=%s",
         caminho_saida,
     )
-
 
 def tratar_roubo_pedestre(caminho_entrada: str, caminho_saida: str):
     logger.info(
@@ -1463,12 +1459,11 @@ def tratar_roubo_pedestre(caminho_entrada: str, caminho_saida: str):
     df[colunas_anos] = df[colunas_anos].fillna(0)
     logger.debug("Conversão numérica aplicada às colunas de anos")
 
-    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Arquivo final de roubo a pedestre gerado com sucesso | caminho=%s",
         caminho_saida,
     )
-
 
 def tratar_roubo_veiculo(caminho_entrada: str, caminho_saida: str):
     logger.info(
@@ -1560,12 +1555,11 @@ def tratar_roubo_veiculo(caminho_entrada: str, caminho_saida: str):
     df[colunas_anos] = df[colunas_anos].fillna(0)
     logger.debug("Conversão numérica aplicada às colunas de anos")
 
-    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Arquivo final de roubo de veículo gerado com sucesso | caminho=%s",
         caminho_saida,
     )
-
 
 def roubo_comercio(caminho_entrada: str, caminho_saida: str):
     logger.info(
@@ -1657,7 +1651,7 @@ def roubo_comercio(caminho_entrada: str, caminho_saida: str):
     df[colunas_anos] = df[colunas_anos].fillna(0)
     logger.debug("Conversão numérica aplicada às colunas de anos")
 
-    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Arquivo final de roubo a comércio gerado com sucesso | caminho=%s",
         caminho_saida,
@@ -1751,5 +1745,5 @@ def roubo_transporte_coletivo(caminho_entrada: str, caminho_saida: str):
     logger.info("Conversão para numérico aplicada nas colunas: %s", colunas_anos)
 
     # Salvar resultado
-    df.to_csv(caminho_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_saida, index=False, sep=";", encoding="utf-8")
     logger.info("Arquivo processado salvo em: %s", caminho_saida)

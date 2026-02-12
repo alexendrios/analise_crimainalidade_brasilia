@@ -28,6 +28,8 @@ from src.tratamento_crimes import (
     roubo_comercio,
     roubo_transporte_coletivo,
 )
+from database.load_csvs import salvar_tabela
+from database.connection import close_engine
 from pathlib import Path
 from util.log import logs
 import time
@@ -185,6 +187,15 @@ def main():
             
             func(f"./data/csv/{arquivo_entrada}", caminhos_saida)
             log_tempo_fim(f"Tratamento {arquivo_entrada}", start)
+            
+        # Carregar dados no banco
+        start = log_tempo_inicio("Carga de Dados no Banco")
+        try:
+            salvar_tabela()
+        finally:
+            close_engine()
+
+        log_tempo_fim("Carga de Dados no Banco", start) 
 
         logger.info("Pipeline finalizado com sucesso!")
 

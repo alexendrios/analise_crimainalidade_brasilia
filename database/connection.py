@@ -2,7 +2,8 @@
 import os
 from util.log import logs
 from urllib.parse import quote_plus
-from sqlalchemy import create_engine
+
+from sqlalchemy import Engine, create_engine
 from sqlalchemy.exc import SQLAlchemyError
 from dotenv import load_dotenv
 
@@ -16,14 +17,16 @@ logger = logs()
 # -------------------------------------------------------------------
 load_dotenv()
 
+_engine: Engine | None = None  
 
 def obter_engine():
     """
     Cria e retorna um engine SQLAlchemy configurado para PostgreSQL.
     """
+    global _engine
     logger.info("🔌 Iniciando criação do engine de banco de dados")
 
-    DB_USER = os.getenv("POSTGRES_USERNAME")
+    DB_USER = os.getenv("POSTGRES_USER")
     DB_PASSWORD_RAW = os.getenv("POSTGRES_PASSWORD")
     DB_HOST = os.getenv("POSTGRES_HOST")
     DB_PORT = os.getenv("POSTGRES_PORT")
@@ -55,10 +58,26 @@ def obter_engine():
     )
 
     try:
-        engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+        logger.info("🔎 DATABASE_URL final: %s", DATABASE_URL)
+
+        _engine = create_engine(DATABASE_URL, pool_pre_ping=True)
         logger.info("✅ Engine SQLAlchemy criado com sucesso")
-        return engine
+        return _engine
 
     except SQLAlchemyError as exc:
         logger.exception("🔥 Erro ao criar o engine SQLAlchemy")
         raise exc
+
+def close_engine():
+    """
+    Encerra todas as conexões ativas e descarta o pool.
+    """
+    global _engine
+
+    if _engine is not None:
+        logger.info("🛑 Encerrando conexões do banco de dados")
+        _engine.dispose()
+        _engine = None
+        logger.info("✅ Conexões encerradas com sucesso")
+    else:
+        logger.warning("⚠️ Engine já está encerrado ou não foi criado")
