@@ -32,7 +32,6 @@ def normalizar_texto(texto: str) -> str:
 
     return texto_normalizado
 
-
 def padronizando_colunas(df):
     logger.info("Padronizando colunas do DataFrame")
 
@@ -45,7 +44,6 @@ def padronizando_colunas(df):
     logger.debug("Colunas após a padronização: %s", colunas_depois)
 
     return df
-
 
 def tratar_crimes_contra_mulher(arquivo_entrada, arquivo_saida):
     logger.info("Iniciando tratamento de crimes contra a mulher")
@@ -65,7 +63,6 @@ def tratar_crimes_contra_mulher(arquivo_entrada, arquivo_saida):
 
     df.to_csv(arquivo_saida, sep=";", index=False)
     logger.info("Arquivo tratado salvo com sucesso: %s", arquivo_saida)
-
 
 def tratar_feminicidio(arquivo_entr_feminicidio, arquivo_saida_feminicidio):
     logger.info("Iniciando tratamento de dados de feminicídio")
@@ -114,7 +111,6 @@ def tratar_feminicidio(arquivo_entr_feminicidio, arquivo_saida_feminicidio):
     logger.info(
         "Arquivo de feminicídio tratado e salvo em: %s", arquivo_saida_feminicidio
     )
-
 
 def tratar_desaparecidos_idade_sexo(arquivo_entrada, arquivo_saida):
     logger.info("Iniciando tratamento de desaparecidos por idade e sexo")
@@ -230,12 +226,11 @@ def tratar_desaparecidos_idade_sexo(arquivo_entrada, arquivo_saida):
         df_final.shape[1],
     )
 
-    df_final.to_csv(arquivo_saida, index=False, encoding="utf-8")
+    df_final.to_csv(arquivo_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Desaparecidos por idade e sexo tratados e salvos em: %s",
         arquivo_saida,
     )
-
 
 def tratar_desaparecidos_localizados(arquivo_entrada, arquivo_saida):
     ANO = 2021
@@ -347,12 +342,11 @@ def tratar_desaparecidos_localizados(arquivo_entrada, arquivo_saida):
         df_final.shape[1],
     )
 
-    df_final.to_csv(arquivo_saida, index=False, encoding="utf-8")
+    df_final.to_csv(arquivo_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Desaparecidos localizados tratados e salvos em: %s",
         arquivo_saida,
     )
-
 
 def tratar_desaparecidos_regiao(arquivo_entrada, arquivo_saida):
     logger.info("Iniciando tratamento de desaparecidos por região")
@@ -461,12 +455,11 @@ def tratar_desaparecidos_regiao(arquivo_entrada, arquivo_saida):
         df.shape[1],
     )
 
-    df.to_csv(arquivo_saida, index=False, encoding="utf-8")
+    df.to_csv(arquivo_saida, index=False, sep=";", encoding="utf-8")
     logger.info(
         "Desaparecidos por região tratados e salvos em: %s",
         arquivo_saida,
     )
-
 
 def tratar_furto_veiculo(arquivo_entrada, arquivo_saida):
     logger.info("Iniciando tratamento de furto em veículo")
@@ -517,7 +510,6 @@ def tratar_furto_veiculo(arquivo_entrada, arquivo_saida):
     # Salvando CSV final
     df.to_csv(arquivo_saida, sep=";", index=False)
     logger.info("Furto em veículo tratado e salvo em: %s", arquivo_saida)
-
 
 def tratar_homicidio(arquivo_entrada, arquivo_saida):
     logger.info("Iniciando tratamento de homicídio")
@@ -583,9 +575,8 @@ def tratar_homicidio(arquivo_entrada, arquivo_saida):
     logger.debug("Colunas finalizadas e renomeadas: %s", list(df.columns))
 
     # Salvar CSV
-    df.to_csv(arquivo_saida, index=False)
+    df.to_csv(arquivo_saida, sep=";", index=False, encoding="utf-8")
     logger.info("Homicídio tratado e salvo em: %s", arquivo_saida)
-
 
 def tratar_violencia_idosos(caminho_arquivo, arquivo_saida):
     logger.info("Iniciando tratamento de violência contra idosos")
@@ -623,8 +614,8 @@ def tratar_violencia_idosos(caminho_arquivo, arquivo_saida):
 
     # Salvar CSVs
     if isinstance(arquivo_saida, (list, tuple)) and len(arquivo_saida) == 2:
-        df_t4.to_csv(arquivo_saida[0], index=False)
-        df_t5.to_csv(arquivo_saida[1], index=False)
+        df_t4.to_csv(arquivo_saida[0], sep=";", index=False, encoding="utf-8")
+        df_t5.to_csv(arquivo_saida[1], sep=";", index=False, encoding="utf-8")
         logger.info("Tabelas salvas em: %s e %s", arquivo_saida[0], arquivo_saida[1])
     else:
         logger.error("arquivo_saida deve ser lista/tupla com 2 caminhos")
@@ -632,68 +623,82 @@ def tratar_violencia_idosos(caminho_arquivo, arquivo_saida):
 
     return df_t4, df_t5
 
-
 def _processar_tabela4(texto):
     logger.info("Iniciando processamento da Tabela 4 de violência contra idosos")
-
-    # Filtra apenas linhas relevantes
     linhas = [
-        l for l in texto.splitlines() if l.strip() and l.startswith(("ANO", "201"))
+        l.strip()
+        for l in texto.splitlines()
+        if l.strip() and (l.startswith("ANO") or l.strip()[0].isdigit())
     ]
+
     logger.debug("Linhas filtradas para processamento: %d", len(linhas))
 
     if not linhas:
         logger.warning("Nenhuma linha encontrada para Tabela 4")
         raise ValueError("Tabela 4 não contém dados válidos")
 
-    # Converte para DataFrame
+    # ✅ Validação de header obrigatória
+    if not any(l.startswith("ANO") for l in linhas):
+        logger.warning("Header ANO não encontrado na Tabela 4")
+        raise ValueError("Tabela 4 sem header válido")
+
     csv_like = "\n".join(linhas)
     df = pd.read_csv(StringIO(csv_like), sep=";", usecols=[0, 1, 2])
-    logger.debug(
-        "CSV lido em DataFrame | linhas=%d | colunas=%d", df.shape[0], df.shape[1]
-    )
 
-    # Renomeia colunas
     df.columns = ["ano", "ocorrencias", "violencia_dentro_de_casa"]
 
-    # Conversão numérica
     df = df.astype({"ano": int, "ocorrencias": int, "violencia_dentro_de_casa": int})
-    logger.debug("Colunas convertidas para numéricas")
 
     logger.info("Tabela 4 processada com sucesso | linhas=%d", df.shape[0])
     return df
 
-
 def _processar_tabela5(texto):
     logger.info("Iniciando processamento da Tabela 5 de violência contra idosos")
 
-    # Filtra apenas linhas relevantes
-    linhas = [
-        l for l in texto.splitlines() if l.strip() and l.startswith(("ANO", "201"))
-    ]
+    linhas = []
+    for l in texto.splitlines():
+        l = l.strip()
+        if not l:
+            continue
+
+        # aceita header ou linhas iniciadas por ano numérico
+        if l.startswith("ANO") or l.split(";")[0].isdigit():
+            linhas.append(l)
+
     logger.debug("Linhas filtradas para processamento: %d", len(linhas))
 
     if not linhas:
         logger.warning("Nenhuma linha encontrada para Tabela 5")
         raise ValueError("Tabela 5 não contém dados válidos")
 
-    # Converte para DataFrame
+    # 🔒 valida header obrigatório
+    if not any(l.startswith("ANO") for l in linhas):
+        logger.warning("Header ANO não encontrado na Tabela 5")
+        raise ValueError("Tabela 5 sem header válido")
+
     csv_like = "\n".join(linhas)
+
     df = pd.read_csv(StringIO(csv_like), sep=";")
+
     logger.debug(
-        "CSV lido em DataFrame | linhas=%d | colunas=%d", df.shape[0], df.shape[1]
+        "CSV lido em DataFrame | linhas=%d | colunas=%d",
+        df.shape[0],
+        df.shape[1],
     )
 
-    # Renomeia colunas
+    # valida número de colunas esperado
+    if df.shape[1] != 4:
+        raise ValueError("Tabela 5 com número inesperado de colunas")
+
     df.columns = ["ano", "masculino", "feminino", "total"]
 
-    # Conversão numérica
-    df = df.astype(int)
-    logger.debug("Colunas convertidas para numéricas")
+    try:
+        df = df.astype(int)
+    except ValueError:
+        raise ValueError("Tabela 5 contém valores não numéricos")
 
     logger.info("Tabela 5 processada com sucesso | linhas=%d", df.shape[0])
     return df
-
 
 def calcular_variacao_percentual(base, delta):
     logger.info(
@@ -718,7 +723,6 @@ def calcular_variacao_percentual(base, delta):
         "Base e delta não indicam aumento ou redução percentual clara, retornando 0.0"
     )
     return 0.0
-
 
 def tratar_crimes_idosos_ranking(caminho_arquivo, arquivo_saida):
     logger.info(
@@ -779,9 +783,8 @@ def tratar_crimes_idosos_ranking(caminho_arquivo, arquivo_saida):
     logger.debug("Cálculo de variação concluído | amostra:\n%s", df.head())
 
     # Salvar CSV final
-    df.to_csv(arquivo_saida, index=False)
+    df.to_csv(arquivo_saida, sep=";", index=False, encoding="utf-8")
     logger.info("Ranking de crimes contra idosos tratado e salvo em: %s", arquivo_saida)
-
 
 def tratar_crimes_idosos_por_mes(caminho_arquivo, tipo):
     logger.info(
@@ -918,9 +921,8 @@ def crimes_idosos_por_mes(arquivo_entrada, tipos, arquivo_saida):
     df_pivot["subnotificacao"] = df_pivot["registro"] - df_pivot["fato"]
     logger.debug("Campo subnotificacao calculado")
 
-    df_pivot.to_csv(arquivo_saida, index=False)
+    df_pivot.to_csv(arquivo_saida, sep=";", index=False, encoding="utf-8")
     logger.info("Arquivo gerado com sucesso | caminho=%s", arquivo_saida)
-
 
 def tratar_injuria_racial_por_regiao(
     caminho_arquivo_entrada: str, caminho_arquivo_saida: str
@@ -1005,9 +1007,8 @@ def tratar_injuria_racial_por_regiao(
     df = df.fillna(0)
     logger.debug("Valores nulos substituídos por zero")
 
-    df.to_csv(caminho_arquivo_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_arquivo_saida, sep=";", index=False, encoding="utf-8")
     logger.info("Arquivo final gerado com sucesso | caminho=%s", caminho_arquivo_saida)
-
 
 def tratar_latrocinio_por_regiao(
     caminho_arquivo_entrada: str, caminho_arquivo_saida: str
@@ -1090,7 +1091,7 @@ def tratar_latrocinio_por_regiao(
     )
     logger.debug("Normalização de encoding aplicada na coluna regiao")
 
-    df.to_csv(caminho_arquivo_saida, index=False, encoding="utf-8")
+    df.to_csv(caminho_arquivo_saida, sep=";", index=False, encoding="utf-8")
     logger.info(
         "Arquivo final de latrocínio por região gerado com sucesso | caminho=%s",
         caminho_arquivo_saida,
