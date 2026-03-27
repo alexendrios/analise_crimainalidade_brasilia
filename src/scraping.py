@@ -23,7 +23,7 @@ URLS_RA_INDIVIDUAIS: list[str] = config["coleta"]["fontes"]["dados_wikpedia"][
 
 COL_RA = "região administrativa"
 COL_POP = "população"
-OUTPUT_PATH = "./data/csv/ra_df_populacao.csv"
+OUTPUT_PATH = "./data/bronze/csv/ra_df_populacao.csv"
 
 HEADERS = {
     "User-Agent": (

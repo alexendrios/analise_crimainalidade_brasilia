@@ -1,4 +1,4 @@
-# src/pipeline.py
+# src/pipeline_busca_transformacao.py
 from util.extrator_zip import arquivos_zip_execucao
 from util.leitor_excel import processar_populacao, processar_crimes
 from src.busca import coletar_dados_
@@ -38,7 +38,7 @@ logger = logs()
 
 
 def log_tempo_inicio(func_name):
-    logger.info("========== INÍCIO: %s ==========", func_name)
+    logger.info("========== ETAPA: %s ==========", func_name)
     start = time.time()
     return start
 
@@ -46,55 +46,54 @@ def log_tempo_inicio(func_name):
 def log_tempo_fim(func_name, start_time):
     fim = time.time()
     logger.info(
-        "========== FIM: %s | tempo: %.2f seg ==========", func_name, fim - start_time
+        "========== ETAPA: %s | tempo: %.2f seg ==========", func_name, fim - start_time
     )
 
 
-def main():
+def busca_transformacao_dados():
     pipeline_start = log_tempo_inicio("Pipeline Completo")
 
     try:
         # Coleta de dados
-        start = log_tempo_inicio("Coleta de Dados")
+        start = log_tempo_inicio("Estágio 1 - Coleta de Dados")
         coletar_dados_()
         arquivos_zip_execucao()
         log_tempo_fim("Coleta de Dados", start)
 
         # Processamento de população
-        start = log_tempo_inicio("Processamento População")
+        start = log_tempo_inicio("Estágio 2 - Processamento População")
         processar_populacao()
         obter_dados_ra_populacao()
         analisar_populacao()
-        log_tempo_fim("Processamento População", start)
-
-        # Região administrativa
-        start = log_tempo_inicio("Tratamento População RA")
         tratar_populacao_regiao_administrativa(
-            "./data/csv/ra_df_populacao.csv",
-            "./data/output/ra_df_populacao_tratado.csv",
+            "./data/bronze/csv/ra_df_populacao.csv",
+            "./data/silver/output/ra_df_populacao_tratado.csv",
         )
-        log_tempo_fim("Tratamento População RA", start)
-        
+        log_tempo_fim("Tratamento População ", start)
+
         # Processamento de crimes
-        start = log_tempo_inicio("Processamento Crimes")
-        caminho_planilhas = Path("./data/planilha")
-        caminho_saida = Path("./data/csv")
+        start = log_tempo_inicio(
+            "Estágio 3 - Processamento Crimes - Tranformação de Planilha em CSV"
+        )
+        caminho_planilhas = Path("./data/bronze/planilha")
+        caminho_saida = Path("./data/bronze/csv")
         caminho_saida.mkdir(parents=True, exist_ok=True)  # garante que a pasta exista
         processar_crimes(caminho_planilhas, caminho_saida)
         log_tempo_fim("Processamento Crimes", start)
-        
+
         # Crimes contra mulher
-        start = log_tempo_inicio("Crimes contra Mulher")
+        start = log_tempo_inicio("Estágio 4 - Crimes contra Mulher")
         tratar_crimes_contra_mulher(
-            "./data/csv/crimes-contra-mulher.csv",
-            "./data/output/crimes-contra-mulher_tratado.csv",
+            "./data/bronze/csv/crimes-contra-mulher.csv",
+            "./data/silver/output/crimes-contra-mulher_tratado.csv",
         )
         log_tempo_fim("Crimes contra Mulher", start)
 
         # Feminicídio
-        start = log_tempo_inicio("Feminicídio")
+        start = log_tempo_inicio("Estágio 5 - Feminicídio")
         tratar_feminicidio(
-            "./data/csv/feminicidio.csv", "./data/output/feminicidio.csv"
+            "./data/bronze/csv/feminicidio.csv",
+            "./data/silver/output/feminicidio_tratado.csv",
         )
         log_tempo_fim("Feminicídio", start)
 
@@ -116,8 +115,8 @@ def main():
                 tratar_desaparecidos_regiao,
             ),
         ]:
-            start = log_tempo_inicio(f"Tratamento {desc[0]}")
-            desc[2](f"./data/csv/{desc[0]}", f"./data/output/{desc[1]}")
+            start = log_tempo_inicio(f"Estágio 6 - Tratamento {desc[0]}")
+            desc[2](f"./data/bronze/csv/{desc[0]}", f"./data/silver/output/{desc[1]}")
             log_tempo_fim(f"Tratamento {desc[0]}", start)
 
         # Furto e roubo
@@ -132,8 +131,8 @@ def main():
             (
                 "idosos_7_anos.csv",
                 [
-                    "./data/output/idosos_tabela4.csv",
-                    "./data/output/idosos_tabela5.csv",
+                    "./data/silver/output/idosos_tabela4.csv",
+                    "./data/silver/output/idosos_tabela5.csv",
                 ],
                 tratar_violencia_idosos,
             ),
@@ -160,7 +159,7 @@ def main():
             ),
             (
                 "lesao-corporal-morte.csv",
-                "lesao_corporal_morte_tratada.csv",
+                "lesao_corporal_morte_total_tratada.csv",
                 tratar_lesao_corporal_morte,
             ),
             ("racismo.csv", "racismo_tratado.csv", tratar_racismo),
@@ -177,25 +176,25 @@ def main():
                 roubo_transporte_coletivo,
             ),
         ]:
-            start = log_tempo_inicio(f"Tratamento {arquivo_entrada}")
-    
+            start = log_tempo_inicio(f"Estagio 7 - Tratamento {arquivo_entrada}")
+
             # Se for lista ou tupla, passa direto
             if isinstance(arquivo_saida, (list, tuple)):
                 caminhos_saida = arquivo_saida
             else:
-                caminhos_saida = f"./data/output/{arquivo_saida}"
-            
-            func(f"./data/csv/{arquivo_entrada}", caminhos_saida)
+                caminhos_saida = f"./data/silver/output/{arquivo_saida}"
+
+            func(f"./data/bronze/csv/{arquivo_entrada}", caminhos_saida)
             log_tempo_fim(f"Tratamento {arquivo_entrada}", start)
-            
+
         # Carregar dados no banco
-        start = log_tempo_inicio("Carga de Dados no Banco")
+        start = log_tempo_inicio("Estágio 8 - Carga de Dados no Banco")
         try:
             salvar_tabela()
         finally:
             close_engine()
 
-        log_tempo_fim("Carga de Dados no Banco", start) 
+        log_tempo_fim("Carga de Dados no Banco", start)
 
         logger.info("Pipeline finalizado com sucesso!")
 
@@ -203,7 +202,3 @@ def main():
         logger.exception("Erro durante a execução do pipeline: %s", e)
 
     log_tempo_fim("Pipeline Completo", pipeline_start)
-
-
-if __name__ == "__main__":
-    main()

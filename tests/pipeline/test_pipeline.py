@@ -1,5 +1,5 @@
 from unittest.mock import patch
-from src.pipeline import main
+from pipeline_busca_transformacao import main
 import pandas as pd
 import importlib
 
@@ -25,9 +25,9 @@ def test_pipeline_fluxo_completo():
         patch("src.pipeline.obter_dados_ra_populacao") as mock_ra,
         patch("src.pipeline.processar_crimes") as mock_crimes,
     ):
-        import src.pipeline as pipeline
+        import pipeline_busca_transformacao as pipeline_busca_transformacao
 
-        pipeline.main()
+        pipeline_busca_transformacao.main()
 
         mock_coletar.assert_called_once()
         mock_zip.assert_called_once()

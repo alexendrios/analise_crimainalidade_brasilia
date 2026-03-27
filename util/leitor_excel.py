@@ -38,7 +38,6 @@ def normalizar_colunas(df: pd.DataFrame) -> pd.DataFrame:
     )
     return df
 
-
 def filtrar_distrito_federal(df: pd.DataFrame) -> pd.DataFrame:
     valores_df = {"distrito federal", "df", "brasília", "brasilia"}
 
@@ -51,7 +50,6 @@ def filtrar_distrito_federal(df: pd.DataFrame) -> pd.DataFrame:
 
     logger.warning("Distrito Federal não encontrado")
     return df.iloc[0:0]
-
 
 def encontrar_coluna_populacao(df: pd.DataFrame) -> str:
     # 1️⃣ Nome explícito
@@ -68,7 +66,6 @@ def encontrar_coluna_populacao(df: pd.DataFrame) -> str:
             return col
 
     raise ValueError("Coluna de população não encontrada")
-
 
 def limpar_populacao(valor) -> int | None:
     if pd.isna(valor):
@@ -112,7 +109,6 @@ def listar_arquivos_populacao(diretorio: str) -> list[str]:
     padroes = ("pop", "populacao", "estimativa", "uf_")
     return listar_arquivos_por_padrao(diretorio, padroes)
 
-
 def listar_arquivos_crimes(diretorio: str) -> list[str]:
     padroes = (
         "roubo",
@@ -126,7 +122,6 @@ def listar_arquivos_crimes(diretorio: str) -> list[str]:
         "crime",
     )
     return listar_arquivos_por_padrao(diretorio, padroes)
-
 
 def processar_arquivo(caminho: str) -> pd.DataFrame:
     nome = os.path.basename(caminho)
@@ -150,7 +145,6 @@ def processar_arquivo(caminho: str) -> pd.DataFrame:
             "arquivo": [nome],
         }
     )
-
 
 def processar_dados_crimes(caminho: str) -> pd.DataFrame:
     logger.info("Processando arquivo de crimes: %s", caminho)
@@ -188,7 +182,6 @@ def processar_dados_crimes(caminho: str) -> pd.DataFrame:
         logger.exception("Erro ao processar arquivo de crimes: %s", caminho)
         raise exc
 
-
 def consolidar_historico(lista_arquivos: list[str]) -> pd.DataFrame:
     historico = []
 
@@ -211,8 +204,7 @@ def consolidar_historico(lista_arquivos: list[str]) -> pd.DataFrame:
         .sort_values("ano")
         .reset_index(drop=True)
     )
-    
-    
+      
 def salvar_historico_csv(
     df: pd.DataFrame,
     caminho: str ,
@@ -243,16 +235,16 @@ def salvar_historico_csv(
     logger.info(f"Arquivo CSV salvo com sucesso em: {path}")
     
 def processar_populacao():
-    arquivos = listar_arquivos_populacao("./data/planilha")
+    arquivos = listar_arquivos_populacao("./data/bronze/planilha")
     df_historico = consolidar_historico(arquivos)
-    salvar_historico_csv(df_historico, "./data/csv/populacao_df_historico.csv")
-
+    salvar_historico_csv(df_historico, "./data/bronze/csv/populacao_df_historico.csv")
 
 def processar_crimes(caminho_planilhas: Path, caminho_saida: Path):
     arquivos = listar_arquivos_crimes(caminho_planilhas)
     arquivos = [a for a in arquivos if not Path(a).name.startswith("~$")]
-
+    
     for arquivo in arquivos:
         nome_csv = Path(arquivo).stem + ".csv"
         df = processar_dados_crimes(arquivo)
+        logger.info(f"Arquivos de crimes encontrados: {arquivo}")
         salvar_historico_csv(df, caminho_saida / nome_csv)   

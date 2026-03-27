@@ -106,7 +106,7 @@ def tratar_feminicidio(arquivo_entr_feminicidio, arquivo_saida_feminicidio):
         df.shape[1],
     )
     logger.debug("Colunas finais: %s", df.columns.tolist())
-
+ 
     df.to_csv(arquivo_saida_feminicidio, sep=";", index=False)
     logger.info(
         "Arquivo de feminicídio tratado e salvo em: %s", arquivo_saida_feminicidio

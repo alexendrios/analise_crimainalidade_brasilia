@@ -21,13 +21,13 @@ def limpar_diretorios():
     print("Limpando diretórios...")
 
     pastas = {
-        "./data/csv/*.csv": "Arquivos CSV",
-        "./data/planilha/*.xlsx": "Arquivos XLSX",
-        "./data/planilha/*.xls": "Arquivos XLS",
-        "./data/planilha/*.pdf": "Arquivos PDF",
-        "./data/zip/*.zip": "Arquivos ZIP",
+        "./data/bronze/csv/*.csv": "Arquivos CSV",
+        "./data/bronze/planilha/*.xlsx": "Arquivos XLSX",
+        "./data/bronze/planilha/*.xls": "Arquivos XLS",
+        "./data/bronze/planilha/*.pdf": "Arquivos PDF",
+        "./data/bronze/zip/*.zip": "Arquivos ZIP",
         "./logs/*.log": "Arquivos de LOG",
-        "./data/output/*.csv": "Arquivos CSV de saída",
+        "./data/silver/output/*.csv": "Arquivos CSV de saída",
     }
 
     for padrao, descricao in pastas.items():
@@ -63,25 +63,25 @@ def detectar_extensao(content_type: str):
         or "compressed" in ct
         or ct == "application/octet-stream"  # muitos servidores enviam ZIP assim
     ):
-        return ".zip", "./data/zip"
+        return ".zip", "./data/bronze/zip"
 
     # CSV
     if "csv" in ct or "text/plain" in ct:
-        return ".csv", "./data/csv"
+        return ".csv", "./data/bronze/csv"
 
     # Excel XLSX (moderno)
     if (
         "spreadsheetml" in ct
         or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in ct
     ):
-        return ".xlsx", "./data/planilha"
+        return ".xlsx", "./data/bronze/planilha"
 
     # Excel XLS (legado)
     if "application/vnd.ms-excel" in ct or ct.endswith("xls"):
-        return ".xls", "./data/planilha"
+        return ".xls", "./data/bronze/planilha"
 
     # Desconhecido
-    return ".bin", "./data/outros"
+    return ".bin", "./data/bronze/outros"
 
 def download_arquivo(url: str, nome_arquivo: str):
     start = time.time()

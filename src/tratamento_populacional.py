@@ -17,8 +17,8 @@ from util.log import logs
 # ======================================================
 warnings.filterwarnings("ignore")
 
-CAMINHO_CSV = "./data/csv/populacao_df_historico.csv"
-OUTPUT = Path("./data/output")
+CAMINHO_CSV = "./data/bronze/csv/populacao_df_historico.csv"
+OUTPUT = Path("./data/silver/output")
 OUTPUT.mkdir(parents=True, exist_ok=True)
 
 logger = logs()

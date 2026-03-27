@@ -10,15 +10,15 @@ from util.arquivos import limpar_diretorios, detectar_extensao, download_arquivo
 @pytest.mark.parametrize(
     "content_type, esperado",
     [
-        ("text/csv", (".csv", "./data/csv")),
+        ("text/csv", (".csv", "./data/bronze/csv")),
         (
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            (".xlsx", "./data/planilha"),
+            (".xlsx", "./data/bronze/planilha"),
         ),
-        ("application/vnd.ms-excel", (".xls", "./data/planilha")),
-        ("application/zip", (".zip", "./data/zip")),
-        ("application/octet-stream", (".zip", "./data/zip")),
-        ("application/json", (".bin", "./data/outros")),
+        ("application/vnd.ms-excel", (".xls", "./data/bronze/planilha")),
+        ("application/zip", (".zip", "./data/bronze/zip")),
+        ("application/octet-stream", (".zip", "./data/bronze/zip")),
+        ("application/json", (".bin", "./data/bronze/outros")),
     ],
 )
 def test_detectar_extensao(content_type, esperado):
@@ -38,8 +38,8 @@ def test_limpar_diretorios_remove_arquivos(
     mock_logs, mock_fechar, mock_glob, mock_remove
 ):
     mock_glob.side_effect = [
-        ["./data/csv/a.csv"],
-        ["./data/planilha/b.xlsx"],
+        ["./data/bronze/csv/a.csv"],
+        ["./data/bronze/planilha/b.xlsx"],
         [],
         [],
         [],

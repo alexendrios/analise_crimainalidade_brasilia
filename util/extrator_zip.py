@@ -4,8 +4,8 @@ from util.log import logs
 
 logger = logs()
 
-diretorio_zip = "./data/zip"
-diretorio_destino = "./data/planilha"
+diretorio_zip = "./data/bronze/zip"
+diretorio_destino = "./data/bronze/planilha"
 
 os.makedirs(diretorio_destino, exist_ok=True)
 logger.info(f"Diretório de destino garantido: {diretorio_destino}")

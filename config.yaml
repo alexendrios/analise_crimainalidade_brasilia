@@ -7,11 +7,11 @@ app:
 paths:
   base_dir: "."
   logs_dir: "./logs"
-  data_dir: "./data"
-  csv_dir: "./data/csv"
-  planilha_dir: "./data/planilha"
-  temp_dir: "./data/temp"
-  output_dir: "./data/output"
+  data_dir: "./data/bronze"
+  csv_dir: "./data/bronze/csv"
+  planilha_dir: "./data/bronze/planilha"
+  temp_dir: "./data/bronze/temp"
+  output_dir: "./data/silver/output"
 
 logs:
   level: "INFO"
