@@ -14,7 +14,7 @@ def gerar_urls_rotas(url_: str,rotas_dict=None, rotas={}):
     """Gera a lista de URLs com seus respectivos nomes de arquivo."""
     urls = []
     rotas_dict = rotas_dict or rotas  # usa rotas padrão se não passar nada
-
+       
     for nome, rota in rotas_dict.items():
         if "url" in rota:
             urls.append((rota["url"], rota["arquivo"]))

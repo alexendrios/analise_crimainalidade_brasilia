@@ -12,8 +12,10 @@ __pycache__/
 .pytest_cache/
 
 # Diretórios de dados e logs (mantém a pasta, ignora arquivos)
+data/
 data/*
 !data/.gitkeep
+
 
 logs/*
 !logs/.gitkeep

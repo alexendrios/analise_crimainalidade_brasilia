@@ -28,7 +28,7 @@ coleta:
   # URLs públicas do GDF (ajuste conforme os datasets que você consome)
   fontes:
     dados_abertos:
-      url: "https://dados.df.gov.br"
+      url: "https://dados.df.gov.br/o/dados-abertos/v1.0"
       limite_por_requisicao: 50000
     dados_ibge:
       url: "https://ftp.ibge.gov.br"

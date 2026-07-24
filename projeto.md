@@ -1,0 +1,220 @@
+# Projeto Criminalidade Brasília - DF
+
+> **Nota de atualização:** esta documentação foi revisada para refletir o que está **efetivamente implementado no código** na data desta análise. A versão anterior descrevia uma arquitetura geoespacial com PostGIS, malha hexagonal, dashboard Streamlit e API FastAPI — nenhum desses componentes existe hoje no repositório. Eles foram movidos para a seção [Roadmap](#-roadmap--visão-futura), mantidos apenas como direção futura possível.
+
+### Pipeline de Dados
+![alt text](image.png)
+
+### Arquitetura
+![alt text](image-1.png)
+
+## 🎯 Visão Geral
+
+O projeto coleta, padroniza e consolida séries históricas de criminalidade do Distrito Federal (fontes SSP-DF e dados populacionais do IBGE/GDF), organiza os dados em um **Data Lakehouse em camadas (Bronze → Silver → Gold)** e utiliza o resultado para treinar um modelo híbrido de previsão de séries temporais (Prophet + XGBoost) aplicado hoje a **crimes contra a mulher** por Região Administrativa (RA).
+
+Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashboard e sem API expostos no código atual — o fluxo é executado localmente via scripts Python (`src/main.py`).
+
+## 🧠 Diagrama de Arquitetura Lógica (estado atual)
+
+```bash
+        ┌───────────────────────────────────────────┐
+        │            Fontes de Dados Externas        │
+        │─────────────────────────────────────────────│
+        │ - dados.df.gov.br (SSP-DF, planilhas .xlsx) │
+        │ - ftp.ibge.gov.br (população por município) │
+        │ - Wikipédia (população por RA)              │
+        └──────────────────┬──────────────────────────┘
+                            │
+                            ▼
+        ┌───────────────────────────────────────────┐
+        │        Camada de Coleta (src/busca.py,     │
+        │        src/scraping.py, src/coleta_gdf.py) │
+        │─────────────────────────────────────────────│
+        │ • Download via requests + rotas.yaml/       │
+        │   rotas_ibge.yaml                            │
+        │ • Extração de .zip (util/extrator_zip.py)   │
+        │ • Leitura de .xlsx → .csv                    │
+        │   (util/leitor_excel.py)                     │
+        └──────────────────┬──────────────────────────┘
+                            │
+                            ▼
+        ┌───────────────────────────────────────────┐
+        │   BRONZE (data/bronze)                     │
+        │   CSV/planilhas brutos, sem tratamento     │
+        └──────────────────┬──────────────────────────┘
+                            │
+                            ▼
+        ┌───────────────────────────────────────────┐
+        │   Camada de Tratamento (src/tratamento_*)   │
+        │─────────────────────────────────────────────│
+        │ • Padronização de nomes de RA               │
+        │   (util/padronizacao.py)                     │
+        │ • Wide→Long, normalização de colunas         │
+        │ • Validação estrutural (validation/          │
+        │   validator.py)                              │
+        └──────────────────┬──────────────────────────┘
+                            │
+                            ▼
+        ┌───────────────────────────────────────────┐
+        │   SILVER (data/silver/output)               │
+        │   CSVs tratados e padronizados               │
+        └──────────────────┬──────────────────────────┘
+                            │
+                            ▼
+        ┌───────────────────────────────────────────┐
+        │   Banco de Dados PostgreSQL (SQLAlchemy)    │
+        │─────────────────────────────────────────────│
+        │  • Sem extensão espacial (sem PostGIS)      │
+        │  • Estratégia de carga: FULL REFRESH         │
+        │    (to_sql if_exists="replace")              │
+        │  • Acesso via Repository Pattern             │
+        │    (ingestion/repository_adapter.py →        │
+        │    database/repository/repository.py)        │
+        └──────────────────┬──────────────────────────┘
+                            │
+                            ▼
+        ┌───────────────────────────────────────────┐
+        │   GOLD (src/pipeline_tabela_gold.py)        │
+        │─────────────────────────────────────────────│
+        │  • PipelineStep + executor com               │
+        │    ThreadPoolExecutor, retries e timeout      │
+        │    (src/core/executor.py)                     │
+        │  • Serviços de domínio (domain/*.py)          │
+        │    consolidam e gravam tabelas *_gold          │
+        └──────────────────┬──────────────────────────┘
+                            │
+                            ▼
+        ┌───────────────────────────────────────────┐
+        │   Camada de Modelagem (analysis/            │
+        │   data_analyzer.py)                          │
+        │─────────────────────────────────────────────│
+        │  • Feature engineering: lags, rolling mean,  │
+        │    trend, diff                                │
+        │  • Prophet → tendência anual                  │
+        │  • XGBoost → aprende o resíduo (log) do        │
+        │    Prophet                                    │
+        │  • Previsão híbrida com clip dinâmico,        │
+        │    decaimento temporal e suavização           │
+        │  • Modelos exportados em models/*.pkl          │
+        │    com metadados em *_meta.json                │
+        └───────────────────────────────────────────┘
+```
+
+## ⚙️ Componentes Técnicos e Tecnologias (o que está implementado hoje)
+
+| **Camada** | **Ferramentas / Bibliotecas** | **Responsabilidade** |
+|:------------|:------------------------------|:----------------------|
+| **Coleta** | `requests`, `pandas`, `beautifulsoup4`/scraping próprio | Baixar planilhas SSP-DF, extrair `.zip`, raspar população por RA na Wikipédia |
+| **Configuração de rotas** | `rotas.yaml`, `rotas_ibge.yaml`, `config.yaml`, `config/datasets_config.py` | Descrever datasets, resources e URLs de origem sem hardcode no código |
+| **Tratamento (Bronze→Silver)** | `pandas`, funções em `src/tratamento_crimes.py` e `src/tratamento_populacional.py` | Limpeza, padronização de nomes de RA, conversão wide→long |
+| **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
+| **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
+| **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 195 testes automatizados, 0 falhas, **99% de cobertura** (`src`, `util`, `database`), limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
+
+### 🧩 Interações Principais (fluxo real)
+
+- **Coleta → Bronze:** `src/busca.py`, `src/scraping.py` e `util/extrator_zip.py` baixam e descompactam as planilhas originais em `data/bronze`.
+- **Bronze → Silver:** `src/pipeline_busca_transformacao.py` orquestra sequencialmente as funções de `src/tratamento_crimes.py` e `src/tratamento_populacional.py`, gerando CSVs padronizados em `data/silver/output`.
+- **Silver → Postgres → Gold:** `database/load_csvs.py` carrega os CSVs tratados no Postgres; `src/pipeline_tabela_gold.py` executa os `PipelineStep`s em paralelo, cada um chamando um serviço de domínio (`domain/*.py`) que lê tabelas via `Repository.load`, aplica regras de negócio (padronização de nomes de RA, merges seguros com validação de chaves) e grava o resultado com `Repository.save` (estratégia full refresh).
+- **Gold → Modelagem:** `analysis/data_analyzer.py` lê a tabela `violencia_contra_mulher_gold`, gera features temporais, treina Prophet (tendência) + XGBoost (resíduo em log) e produz uma previsão de 5 anos, salvando o modelo em `models/`.
+- **Execução:** `src/main.py` é o ponto de entrada único; hoje as etapas de coleta/transformação e de tabela gold estão comentadas no arquivo, executando apenas `executar_pipeline()` (etapa de modelagem) — as demais etapas podem ser reativadas descomentando as chamadas.
+
+## 📁 Estrutura de Diretórios (resumo)
+
+| Diretório | Conteúdo |
+|:---|:---|
+| `src/` | Coleta, scraping, tratamento de crimes/população, orquestração (`main.py`, `pipeline_*`, `core/`) |
+| `domain/` | Serviços de domínio por tema (violência contra a mulher, idosos, crimes letais, patrimoniais, discriminatórios, desaparecidos) |
+| `database/` | Conexão SQLAlchemy, repositório de acesso ao Postgres, carga de CSVs |
+| `ingestion/` | Adaptador simples (`Repository`) entre domínio e `database/repository` |
+| `processing/` | Transformações genéricas de datasets e pós-processamento |
+| `validation/` | Validação de chaves e integridade estrutural antes dos merges |
+| `analysis/` | Pipeline de modelagem preditiva (Prophet + XGBoost) |
+| `util/` | Utilitários (leitura de Excel, extração de zip, logging, padronização de nomes de RA) |
+| `config/` | Configuração de datasets (`datasets_config.py`) e paths |
+| `models/` | Modelos treinados (`.pkl`) e metadados (`_meta.json`) de cada execução |
+| `data/` | Camadas `bronze/`, `silver/`, `gold/` do lakehouse local |
+| `tests/` | Suíte de testes (`arquivos`, `core`, `dados`, `database`, `pipeline`, `rotas`, `scrapings`, `setup`) |
+| `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
+
+## 🗃️ Tabelas Gold Geradas
+
+| Tabela | Serviço responsável |
+|:---|:---|
+| `violencia_contra_mulher_gold` | `ViolenciaMulherService.consolidar` |
+| `identificacao_crimes_contra_mulher_gold` | `IdentificacaoCrimesService.carregar` |
+| `violencia_idosos_gold` / `_ocorrencias_gold` / `_mensais_gold` / `_sexo_gold` | `ViolenciaIdososService` |
+| `crimes_roubo_furto_gold` | `CrimesPatrimoniaisService.consolidar` |
+| `crimes_letais_gold` | `CrimesLetaisService.consolidar` |
+| `crimes_discriminatorios_gold` | `CrimesDiscriminatoriosService.consolidar` |
+| `desaparecidos_idade_sexo_gold` / `_localizados_gold` / `_regiao_gold` | `DesaparecimentosService` |
+
+## 🤖 Modelagem Preditiva (`analysis/data_analyzer.py`)
+
+- **Alvo atual:** `crimes_contra_mulher` (contagem anual por RA, agregado no nível DF na tabela gold consumida).
+- **Features:** `lag_1`, `lag_2`, `rolling_mean_2`, `rolling_mean_3`, `taxa_feminicidio`, `feminicidio_lag_1`, `trend`, `ano_num`, `diff_1`.
+- **Abordagem híbrida:** Prophet modela a tendência/sazonalidade anual; um `XGBRegressor` aprende o resíduo em escala logarítmica entre o valor real e o previsto pelo Prophet.
+- **Pós-processamento da previsão:** clipping dinâmico do resíduo pelos percentis 5%/95%, decaimento de 15% por ano projetado (mínimo de 40% do efeito) e suavização exponencial simples entre anos consecutivos.
+- **Horizonte:** 5 anos à frente, com atualização recursiva das features (lags, médias móveis) a cada passo.
+- **Persistência:** cada execução gera um novo arquivo `models/xgb_residual_log_<timestamp>.pkl`; **não há atualmente um `_meta.json` salvo para os modelos residuais em log** (apenas os modelos `xgb_*` mais antigos possuem metadados de features/métricas — ponto de atenção para padronizar).
+
+## ✅ Qualidade e Testes
+
+- **195 testes** automatizados (`pytest`), **0 falhas**, cobertura de **99%** sobre `src`, `util` e `database` (limiar mínimo configurado: 95%).
+- Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `coverage_report/` (HTML).
+- Suíte organizada por domínio: `tests/arquivos`, `tests/core`, `tests/dados`, `tests/database`, `tests/pipeline`, `tests/rotas`, `tests/scrapings`, `tests/setup`.
+
+## 🚀 Como Executar (ambiente local)
+
+```bash
+# 1. Subir o Postgres local
+docker compose up -d
+
+# 2. Configurar variáveis de ambiente (.env) com as credenciais do banco
+
+# 3. Instalar dependências em um ambiente virtual
+python -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt   # ⚠️ ver nota abaixo
+
+# 4. Rodar o pipeline (editar src/main.py para habilitar as etapas desejadas)
+python -m src.main
+
+# 5. Rodar a suíte de testes
+pytest
+```
+
+> ⚠️ **Ponto de atenção:** não foi localizado um arquivo `requirements.txt`/`pyproject.toml` no repositório. As dependências reais (identificadas pelo código) incluem no mínimo: `pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `pytest`, `pytest-cov`, `pytest-html`. Recomenda-se gerar um arquivo de dependências fixado (`pip freeze` do ambiente atual ou `poetry`) para reprodutibilidade.
+
+## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
+
+- **Padronização de RA espalhada:** a normalização de nomes de Regiões Administrativas (`util/padronizacao.py`) é chamada repetidamente em vários serviços de domínio, com pequenos ajustes pontuais (ex.: `renomear_linha`, `recriar_regiao_com_valor`) espalhados pelo código — candidato a um mapeamento mestre único.
+- **Full Refresh:** toda carga no Postgres recria a tabela (`if_exists="replace"`); não há carga incremental.
+- **Maturidade desigual entre pipelines:** o pipeline Silver (`pipeline_busca_transformacao.py`) é procedural e sequencial; o pipeline Gold (`pipeline_tabela_gold.py`) já usa o padrão declarativo `PipelineStep` + executor paralelo — seria interessante levar o Silver para o mesmo modelo.
+- **`src/main.py` com etapas comentadas:** hoje só a etapa de modelagem é executada por padrão; isso deve ficar explícito para quem for rodar o pipeline completo pela primeira vez.
+- **Modelos sem metadado padronizado:** nem todos os artefatos em `models/` possuem `_meta.json` (os mais recentes, `xgb_residual_log_*`, não geram); padronizar isso ajuda a rastrear qual modelo está em produção.
+
+## 🗺️ Roadmap / Visão Futura
+
+Os itens abaixo **não existem no código atual** — são direções possíveis de evolução, registradas para não se perderem, mas não devem ser confundidas com o estado presente do projeto:
+
+### Arquitetura e dados
+- Camada geoespacial com PostGIS e malha de células (grid) para análises espaciais mais finas.
+- Carga incremental (hoje é sempre full refresh).
+- Cloud readiness: abstrair sistema de arquivos para suportar object storage (S3/Blob).
+- Data quality automatizado entre camadas (schema checks).
+- Orquestração unificada (ex.: levar o pipeline Silver para o padrão `PipelineStep`, ou adotar Airflow/Prefect).
+
+### Modelagem e análise (baseado nas propostas de enriquecimento já levantadas para o notebook exploratório)
+- Variáveis exógenas: projeção populacional por RA, índices socioeconômicos (IDH/renda), sazonalidade mensal/calendário de eventos.
+- Análise de correlação multivariada entre tipos de crime (ex.: Causalidade de Granger) e entre tabelas gold (ex.: violência contra idosos x crimes patrimoniais).
+- Visualização geoespacial (mapas de calor com Folium/GeoPandas) para identificar zonas quentes de criminalidade.
+- Detecção de outliers/anomalias (ex.: Isolation Forest) para identificar mudanças de padrão ou metodologia.
+- Otimização de hiperparâmetros (Optuna/GridSearchCV adaptado a séries temporais).
+- Exportação de relatório executivo (PDF/Markdown) com os principais insights de cada previsão.
+
+### Camada de consumo
+- Dashboard interativo (Streamlit/Plotly) para mapas, séries temporais e aba de previsões.
+- API (ex.: FastAPI) para expor previsões e métricas a sistemas externos.
