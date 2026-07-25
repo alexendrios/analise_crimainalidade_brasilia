@@ -11,9 +11,11 @@ def test_download_arquivo_cobre_bloco_finally(mock_get):
     """
 
     response = MagicMock()
+    response.url = "http://exemplo.com/download"
     response.headers = {
         "Content-Type": "text/csv",
         "content-length": "3",
+        "Content-Disposition": "",
     }
     response.raise_for_status.return_value = None
     response.iter_content.return_value = [b"abc"]

@@ -1,0 +1,313 @@
+diff --git a/tests/arquivos/test_arquivos.py b/tests/arquivos/test_arquivos.py
+index 5ebfd82..23e94c6 100644
+--- a/tests/arquivos/test_arquivos.py
++++ b/tests/arquivos/test_arquivos.py
+@@ -22,7 +22,39 @@ from util.arquivos import limpar_diretorios, detectar_extensao, download_arquivo
+     ],
+ )
+ def test_detectar_extensao(content_type, esperado):
+-    assert detectar_extensao(content_type) == esperado
++    # detectar_extensao(response, nome_arquivo) hoje resolve a extensão nesta
++    # ordem: nome_arquivo -> URL final -> Content-Disposition -> Content-Type.
++    # Para testar isoladamente a resolução por Content-Type, garantimos que
++    # as 3 primeiras fontes não tenham nenhuma extensão.
++    response = MagicMock()
++    response.url = "http://teste.com/download"  # sem extensão no path
++    response.headers = {"Content-Type": content_type, "Content-Disposition": ""}
++
++    assert detectar_extensao(response, "arquivo_sem_extensao") == esperado
++
++
++def test_detectar_extensao_prioriza_nome_arquivo():
++    """Quando nome_arquivo já tem extensão, ela prevalece sobre o Content-Type."""
++    response = MagicMock()
++    response.url = "http://teste.com/download"
++    response.headers = {"Content-Type": "application/json", "Content-Disposition": ""}
++
++    assert detectar_extensao(response, "relatorio.csv") == (
++        ".csv",
++        "./data/bronze/csv",
++    )
++
++
++def test_detectar_extensao_prioriza_url_quando_nome_sem_extensao():
++    """Sem extensão no nome, cai para a extensão da URL final."""
++    response = MagicMock()
++    response.url = "http://teste.com/arquivos/planilha.xlsx"
++    response.headers = {"Content-Type": "application/json", "Content-Disposition": ""}
++
++    assert detectar_extensao(response, "arquivo_sem_extensao") == (
++        ".xlsx",
++        "./data/bronze/planilha",
++    )
+ 
+ 
+ # ============================================================
+@@ -95,9 +127,11 @@ def test_download_arquivo_sucesso(
+ ):
+     response = MagicMock()
+     response.status_code = 200
++    response.url = "http://teste.com/download"  # string real p/ urlparse não quebrar
+     response.headers = {
+         "Content-Type": content_type,
+         "content-length": "6",
++        "Content-Disposition": "",
+     }
+     response.iter_content.return_value = [b"abc", b"def"]
+     response.raise_for_status = lambda: None
+@@ -172,15 +206,21 @@ def test_download_arquivo_raise_for_status(mock_get):
+ 
+ @patch("util.arquivos.requests.get")
+ @patch("util.arquivos.os.remove")
++@patch("util.arquivos.os.path.getsize", return_value=0)
+ @patch("util.arquivos.os.path.exists", return_value=True)
+-def test_download_arquivo_excecao_apos_abrir(mock_exists, mock_remove, mock_get):
++def test_download_arquivo_excecao_apos_abrir(
++    mock_exists, mock_getsize, mock_remove, mock_get
++):
+     response = MagicMock()
++    response.url = "http://teste.com/download"
+     response.headers = {
+         "Content-Type": "text/csv",
+         "content-length": "10",
++        "Content-Disposition": "",
+     }
+ 
+-    def iter_chunks(_=1024):
++    # chunk_size é passado por keyword em download_arquivo (iter_content(chunk_size=8192))
++    def iter_chunks(chunk_size=8192):
+         yield b"abc"
+         raise Exception("Erro durante stream")
+ 
+@@ -192,4 +232,5 @@ def test_download_arquivo_excecao_apos_abrir(mock_exists, mock_remove, mock_get)
+         resultado = download_arquivo("http://teste.com", "quebra")
+ 
+     assert resultado is None
++    # os.path.exists+getsize==0 é checado no finally -> deve remover o arquivo parcial
+     mock_remove.assert_called_once()
+diff --git a/tests/arquivos/test_arquivos_finally.py b/tests/arquivos/test_arquivos_finally.py
+index 3f7a733..05fd477 100644
+--- a/tests/arquivos/test_arquivos_finally.py
++++ b/tests/arquivos/test_arquivos_finally.py
+@@ -11,9 +11,11 @@ def test_download_arquivo_cobre_bloco_finally(mock_get):
+     """
+ 
+     response = MagicMock()
++    response.url = "http://exemplo.com/download"
+     response.headers = {
+         "Content-Type": "text/csv",
+         "content-length": "3",
++        "Content-Disposition": "",
+     }
+     response.raise_for_status.return_value = None
+     response.iter_content.return_value = [b"abc"]
+diff --git a/tests/pipeline/test_pipeline.py b/tests/pipeline/test_pipeline.py
+index 27a133e..9e54f2e 100644
+--- a/tests/pipeline/test_pipeline.py
++++ b/tests/pipeline/test_pipeline.py
+@@ -1,108 +1,81 @@
+-from unittest.mock import patch
+-from pipeline_busca_transformacao import main
++from unittest.mock import patch, DEFAULT
+ import pandas as pd
+-import importlib
+ 
+-
+-# Fake DataFrame para simular consolidação
+-df_fake = pd.DataFrame(
+-    {
+-        "ano": [2020],
+-        "uf": ["DF"],
+-        "localidade": ["Distrito Federal"],
+-        "populacao": [3000000],
+-        "arquivo": ["populacao_2020.xls"],
+-    }
+-)
++from src.pipeline_busca_transformacao import busca_transformacao_dados
++
++MODULO = "src.pipeline_busca_transformacao"
++
++# Todas as funções externas que busca_transformacao_dados() chama diretamente
++FUNCOES_MOCKADAS = [
++    "coletar_dados_",
++    "arquivos_zip_execucao",
++    "processar_populacao",
++    "obter_dados_ra_populacao",
++    "analisar_populacao",
++    "tratar_populacao_regiao_administrativa",
++    "processar_crimes",
++    "tratar_crimes_contra_mulher",
++    "tratar_feminicidio",
++    "tratar_desaparecidos_idade_sexo",
++    "tratar_desaparecidos_localizados",
++    "tratar_desaparecidos_regiao",
++    "tratar_furto_veiculo",
++    "tratar_homicidio",
++    "tratar_violencia_idosos",
++    "tratar_crimes_idosos_ranking",
++    "crimes_idosos_por_mes",
++    "tratar_injuria_racial_por_regiao",
++    "tratar_latrocinio_por_regiao",
++    "tratar_lesao_corporal_morte_por_regiao",
++    "tratar_lesao_corporal_morte",
++    "tratar_racismo",
++    "tratar_roubo_pedestre",
++    "tratar_roubo_veiculo",
++    "roubo_comercio",
++    "roubo_transporte_coletivo",
++    "salvar_tabela",
++    "close_engine",
++]
+ 
+ 
+ def test_pipeline_fluxo_completo():
++    """Executa o pipeline feliz: todas as etapas são chamadas uma vez."""
++    with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
++        busca_transformacao_dados()
+ 
+-    with (
+-        patch("src.pipeline.coletar_dados_") as mock_coletar,
+-        patch("src.pipeline.arquivos_zip_execucao") as mock_zip,
+-        patch("src.pipeline.processar_populacao") as mock_pop,
+-        patch("src.pipeline.obter_dados_ra_populacao") as mock_ra,
+-        patch("src.pipeline.processar_crimes") as mock_crimes,
+-    ):
+-        import pipeline_busca_transformacao as pipeline_busca_transformacao
+-
+-        pipeline_busca_transformacao.main()
+-
+-        mock_coletar.assert_called_once()
+-        mock_zip.assert_called_once()
+-        mock_pop.assert_called_once()
+-        mock_ra.assert_called_once()
+-        mock_crimes.assert_called_once()
++        mocks["coletar_dados_"].assert_called_once()
++        mocks["arquivos_zip_execucao"].assert_called_once()
++        mocks["processar_populacao"].assert_called_once()
++        mocks["obter_dados_ra_populacao"].assert_called_once()
++        mocks["processar_crimes"].assert_called_once()
++        mocks["salvar_tabela"].assert_called_once()
++        mocks["close_engine"].assert_called_once()
+ 
+ 
+-def test_pipeline_crimes_lista_vazia():
+-    """
+-    Testa pipeline quando não há planilhas de crimes (lista vazia).
+-    """
++def test_pipeline_crimes_retorna_vazio_nao_quebra():
++    """Se processar_crimes não retorna nada, o pipeline segue sem lançar exceção."""
++    with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
++        mocks["processar_crimes"].return_value = None
+ 
+-    with (
+-        patch("src.pipeline.coletar_dados_"),
+-        patch("src.pipeline.arquivos_zip_execucao"),
+-        patch("src.pipeline.processar_populacao"),
+-        patch("src.pipeline.obter_dados_ra_populacao"),
+-        patch("src.pipeline.processar_crimes") as mock_crimes,
+-    ):
+-        mock_crimes.return_value = None
++        busca_transformacao_dados()
+ 
+-        main()
++        mocks["processar_crimes"].assert_called_once()
+ 
+-        mock_crimes.assert_called_once()
+ 
+-
+-def test_main_cobre_except_e_main():
++def test_pipeline_cobre_bloco_except():
+     """
+-    Testa o bloco de exceção do main, simulando erro
+-    em todas as funções do pipeline.
++    A função captura qualquer exceção internamente (não relança) e loga via
++    logger.exception. Simulamos falha logo na coleta para cobrir esse bloco.
+     """
++    with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
++        mocks["coletar_dados_"].side_effect = Exception("Erro simulado")
+ 
+-    funcoes_mockadas = [
+-        "coletar_dados_",
+-        "arquivos_zip_execucao",
+-        "processar_populacao",
+-        "obter_dados_ra_populacao",
+-        "analisar_populacao",
+-        "tratar_populacao_regiao_administrativa",
+-        "processar_crimes",
+-        "tratar_crimes_contra_mulher",
+-        "tratar_feminicidio",
+-        "tratar_desaparecidos_idade_sexo",
+-        "tratar_desaparecidos_localizados",
+-        "tratar_desaparecidos_regiao",
+-        "tratar_furto_veiculo",
+-        "tratar_homicidio",
+-        "tratar_violencia_idosos",
+-        "tratar_crimes_idosos_ranking",
+-        "crimes_idosos_por_mes",
+-        "tratar_injuria_racial_por_regiao",
+-        "tratar_latrocinio_por_regiao",
+-        "tratar_lesao_corporal_morte_por_regiao",
+-        "tratar_lesao_corporal_morte",
+-        "tratar_racismo",
+-        "tratar_roubo_pedestre",
+-        "tratar_roubo_veiculo",
+-        "roubo_comercio",
+-        "roubo_transporte_coletivo",
+-    ]
+-
+-    patches = [patch(f"src.pipeline.{f}") for f in funcoes_mockadas]
+-
+-    mocks = []
+-    for p in patches:
+-        mock = p.start()
+-        mock.side_effect = Exception("Erro simulado")
+-        mocks.append(mock)
+-
+-    with patch("src.pipeline.logger.exception") as mock_logger_exc:
+-        main()
++        with patch(f"{MODULO}.logger.exception") as mock_logger_exc:
++            # não deve levantar, pois o except interno engole a exceção
++            busca_transformacao_dados()
+ 
+-        mock_logger_exc.assert_called()
+-        assert "Erro simulado" in str(mock_logger_exc.call_args)
++            mock_logger_exc.assert_called()
++            assert "Erro simulado" in str(mock_logger_exc.call_args)
+ 
+-    for p in patches:
+-        p.stop()
++        # etapas posteriores não devem ter sido chamadas
++        mocks["salvar_tabela"].assert_not_called()
+diff --git a/util/arquivos.py b/util/arquivos.py
+index bfe3830..0bd6f0c 100644
+--- a/util/arquivos.py
++++ b/util/arquivos.py
+@@ -205,7 +205,11 @@ def detectar_extensao(response, nome_arquivo):
+         elif "excel" in content_type:
+             ext = ".xls"
+ 
+-        elif "zip" in content_type or "compressed" in content_type:
++        elif (
++            "zip" in content_type
++            or "compressed" in content_type
++            or "octet-stream" in content_type
++        ):
+             ext = ".zip"
+ 
+         elif "pdf" in content_type:
+diff --git a/util/leitor_excel.py b/util/leitor_excel.py
+index 0f52379..a79a1b4 100644
+--- a/util/leitor_excel.py
++++ b/util/leitor_excel.py
+@@ -42,7 +42,10 @@ def filtrar_distrito_federal(df: pd.DataFrame) -> pd.DataFrame:
+     valores_df = {"distrito federal", "df", "brasília", "brasilia"}
+ 
+     for col in df.columns:
+-        if df[col].dtype == object:
++        # pd.api.types.is_string_dtype cobre tanto o dtype "object" clássico
++        # quanto o dtype "str"/StringDtype nativo introduzido a partir do
++        # pandas 3.0 (df[col].dtype == object deixa de bater nesse caso).
++        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
+             serie = df[col].astype(str).str.lower().str.strip()
+             mask = serie.isin(valores_df)
+             if mask.any():

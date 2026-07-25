@@ -22,7 +22,39 @@ from util.arquivos import limpar_diretorios, detectar_extensao, download_arquivo
     ],
 )
 def test_detectar_extensao(content_type, esperado):
-    assert detectar_extensao(content_type) == esperado
+    # detectar_extensao(response, nome_arquivo) hoje resolve a extensão nesta
+    # ordem: nome_arquivo -> URL final -> Content-Disposition -> Content-Type.
+    # Para testar isoladamente a resolução por Content-Type, garantimos que
+    # as 3 primeiras fontes não tenham nenhuma extensão.
+    response = MagicMock()
+    response.url = "http://teste.com/download"  # sem extensão no path
+    response.headers = {"Content-Type": content_type, "Content-Disposition": ""}
+
+    assert detectar_extensao(response, "arquivo_sem_extensao") == esperado
+
+
+def test_detectar_extensao_prioriza_nome_arquivo():
+    """Quando nome_arquivo já tem extensão, ela prevalece sobre o Content-Type."""
+    response = MagicMock()
+    response.url = "http://teste.com/download"
+    response.headers = {"Content-Type": "application/json", "Content-Disposition": ""}
+
+    assert detectar_extensao(response, "relatorio.csv") == (
+        ".csv",
+        "./data/bronze/csv",
+    )
+
+
+def test_detectar_extensao_prioriza_url_quando_nome_sem_extensao():
+    """Sem extensão no nome, cai para a extensão da URL final."""
+    response = MagicMock()
+    response.url = "http://teste.com/arquivos/planilha.xlsx"
+    response.headers = {"Content-Type": "application/json", "Content-Disposition": ""}
+
+    assert detectar_extensao(response, "arquivo_sem_extensao") == (
+        ".xlsx",
+        "./data/bronze/planilha",
+    )
 
 
 # ============================================================
@@ -95,9 +127,11 @@ def test_download_arquivo_sucesso(
 ):
     response = MagicMock()
     response.status_code = 200
+    response.url = "http://teste.com/download"  # string real p/ urlparse não quebrar
     response.headers = {
         "Content-Type": content_type,
         "content-length": "6",
+        "Content-Disposition": "",
     }
     response.iter_content.return_value = [b"abc", b"def"]
     response.raise_for_status = lambda: None
@@ -172,15 +206,21 @@ def test_download_arquivo_raise_for_status(mock_get):
 
 @patch("util.arquivos.requests.get")
 @patch("util.arquivos.os.remove")
+@patch("util.arquivos.os.path.getsize", return_value=0)
 @patch("util.arquivos.os.path.exists", return_value=True)
-def test_download_arquivo_excecao_apos_abrir(mock_exists, mock_remove, mock_get):
+def test_download_arquivo_excecao_apos_abrir(
+    mock_exists, mock_getsize, mock_remove, mock_get
+):
     response = MagicMock()
+    response.url = "http://teste.com/download"
     response.headers = {
         "Content-Type": "text/csv",
         "content-length": "10",
+        "Content-Disposition": "",
     }
 
-    def iter_chunks(_=1024):
+    # chunk_size é passado por keyword em download_arquivo (iter_content(chunk_size=8192))
+    def iter_chunks(chunk_size=8192):
         yield b"abc"
         raise Exception("Erro durante stream")
 
@@ -192,4 +232,5 @@ def test_download_arquivo_excecao_apos_abrir(mock_exists, mock_remove, mock_get)
         resultado = download_arquivo("http://teste.com", "quebra")
 
     assert resultado is None
+    # os.path.exists+getsize==0 é checado no finally -> deve remover o arquivo parcial
     mock_remove.assert_called_once()

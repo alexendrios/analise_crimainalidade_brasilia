@@ -1,108 +1,81 @@
-from unittest.mock import patch
-from pipeline_busca_transformacao import main
+from unittest.mock import patch, DEFAULT
 import pandas as pd
-import importlib
 
+from src.pipeline_busca_transformacao import busca_transformacao_dados
 
-# Fake DataFrame para simular consolidação
-df_fake = pd.DataFrame(
-    {
-        "ano": [2020],
-        "uf": ["DF"],
-        "localidade": ["Distrito Federal"],
-        "populacao": [3000000],
-        "arquivo": ["populacao_2020.xls"],
-    }
-)
+MODULO = "src.pipeline_busca_transformacao"
+
+# Todas as funções externas que busca_transformacao_dados() chama diretamente
+FUNCOES_MOCKADAS = [
+    "coletar_dados_",
+    "arquivos_zip_execucao",
+    "processar_populacao",
+    "obter_dados_ra_populacao",
+    "analisar_populacao",
+    "tratar_populacao_regiao_administrativa",
+    "processar_crimes",
+    "tratar_crimes_contra_mulher",
+    "tratar_feminicidio",
+    "tratar_desaparecidos_idade_sexo",
+    "tratar_desaparecidos_localizados",
+    "tratar_desaparecidos_regiao",
+    "tratar_furto_veiculo",
+    "tratar_homicidio",
+    "tratar_violencia_idosos",
+    "tratar_crimes_idosos_ranking",
+    "crimes_idosos_por_mes",
+    "tratar_injuria_racial_por_regiao",
+    "tratar_latrocinio_por_regiao",
+    "tratar_lesao_corporal_morte_por_regiao",
+    "tratar_lesao_corporal_morte",
+    "tratar_racismo",
+    "tratar_roubo_pedestre",
+    "tratar_roubo_veiculo",
+    "roubo_comercio",
+    "roubo_transporte_coletivo",
+    "salvar_tabela",
+    "close_engine",
+]
 
 
 def test_pipeline_fluxo_completo():
+    """Executa o pipeline feliz: todas as etapas são chamadas uma vez."""
+    with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
+        busca_transformacao_dados()
 
-    with (
-        patch("src.pipeline.coletar_dados_") as mock_coletar,
-        patch("src.pipeline.arquivos_zip_execucao") as mock_zip,
-        patch("src.pipeline.processar_populacao") as mock_pop,
-        patch("src.pipeline.obter_dados_ra_populacao") as mock_ra,
-        patch("src.pipeline.processar_crimes") as mock_crimes,
-    ):
-        import pipeline_busca_transformacao as pipeline_busca_transformacao
-
-        pipeline_busca_transformacao.main()
-
-        mock_coletar.assert_called_once()
-        mock_zip.assert_called_once()
-        mock_pop.assert_called_once()
-        mock_ra.assert_called_once()
-        mock_crimes.assert_called_once()
+        mocks["coletar_dados_"].assert_called_once()
+        mocks["arquivos_zip_execucao"].assert_called_once()
+        mocks["processar_populacao"].assert_called_once()
+        mocks["obter_dados_ra_populacao"].assert_called_once()
+        mocks["processar_crimes"].assert_called_once()
+        mocks["salvar_tabela"].assert_called_once()
+        mocks["close_engine"].assert_called_once()
 
 
-def test_pipeline_crimes_lista_vazia():
+def test_pipeline_crimes_retorna_vazio_nao_quebra():
+    """Se processar_crimes não retorna nada, o pipeline segue sem lançar exceção."""
+    with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
+        mocks["processar_crimes"].return_value = None
+
+        busca_transformacao_dados()
+
+        mocks["processar_crimes"].assert_called_once()
+
+
+def test_pipeline_cobre_bloco_except():
     """
-    Testa pipeline quando não há planilhas de crimes (lista vazia).
+    A função captura qualquer exceção internamente (não relança) e loga via
+    logger.exception. Simulamos falha logo na coleta para cobrir esse bloco.
     """
+    with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
+        mocks["coletar_dados_"].side_effect = Exception("Erro simulado")
 
-    with (
-        patch("src.pipeline.coletar_dados_"),
-        patch("src.pipeline.arquivos_zip_execucao"),
-        patch("src.pipeline.processar_populacao"),
-        patch("src.pipeline.obter_dados_ra_populacao"),
-        patch("src.pipeline.processar_crimes") as mock_crimes,
-    ):
-        mock_crimes.return_value = None
+        with patch(f"{MODULO}.logger.exception") as mock_logger_exc:
+            # não deve levantar, pois o except interno engole a exceção
+            busca_transformacao_dados()
 
-        main()
+            mock_logger_exc.assert_called()
+            assert "Erro simulado" in str(mock_logger_exc.call_args)
 
-        mock_crimes.assert_called_once()
-
-
-def test_main_cobre_except_e_main():
-    """
-    Testa o bloco de exceção do main, simulando erro
-    em todas as funções do pipeline.
-    """
-
-    funcoes_mockadas = [
-        "coletar_dados_",
-        "arquivos_zip_execucao",
-        "processar_populacao",
-        "obter_dados_ra_populacao",
-        "analisar_populacao",
-        "tratar_populacao_regiao_administrativa",
-        "processar_crimes",
-        "tratar_crimes_contra_mulher",
-        "tratar_feminicidio",
-        "tratar_desaparecidos_idade_sexo",
-        "tratar_desaparecidos_localizados",
-        "tratar_desaparecidos_regiao",
-        "tratar_furto_veiculo",
-        "tratar_homicidio",
-        "tratar_violencia_idosos",
-        "tratar_crimes_idosos_ranking",
-        "crimes_idosos_por_mes",
-        "tratar_injuria_racial_por_regiao",
-        "tratar_latrocinio_por_regiao",
-        "tratar_lesao_corporal_morte_por_regiao",
-        "tratar_lesao_corporal_morte",
-        "tratar_racismo",
-        "tratar_roubo_pedestre",
-        "tratar_roubo_veiculo",
-        "roubo_comercio",
-        "roubo_transporte_coletivo",
-    ]
-
-    patches = [patch(f"src.pipeline.{f}") for f in funcoes_mockadas]
-
-    mocks = []
-    for p in patches:
-        mock = p.start()
-        mock.side_effect = Exception("Erro simulado")
-        mocks.append(mock)
-
-    with patch("src.pipeline.logger.exception") as mock_logger_exc:
-        main()
-
-        mock_logger_exc.assert_called()
-        assert "Erro simulado" in str(mock_logger_exc.call_args)
-
-    for p in patches:
-        p.stop()
+        # etapas posteriores não devem ter sido chamadas
+        mocks["salvar_tabela"].assert_not_called()

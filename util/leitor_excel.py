@@ -42,7 +42,10 @@ def filtrar_distrito_federal(df: pd.DataFrame) -> pd.DataFrame:
     valores_df = {"distrito federal", "df", "brasília", "brasilia"}
 
     for col in df.columns:
-        if df[col].dtype == object:
+        # pd.api.types.is_string_dtype cobre tanto o dtype "object" clássico
+        # quanto o dtype "str"/StringDtype nativo introduzido a partir do
+        # pandas 3.0 (df[col].dtype == object deixa de bater nesse caso).
+        if pd.api.types.is_string_dtype(df[col]) or df[col].dtype == object:
             serie = df[col].astype(str).str.lower().str.strip()
             mask = serie.isin(valores_df)
             if mask.any():

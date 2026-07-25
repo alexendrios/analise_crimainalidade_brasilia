@@ -205,7 +205,11 @@ def detectar_extensao(response, nome_arquivo):
         elif "excel" in content_type:
             ext = ".xls"
 
-        elif "zip" in content_type or "compressed" in content_type:
+        elif (
+            "zip" in content_type
+            or "compressed" in content_type
+            or "octet-stream" in content_type
+        ):
             ext = ".zip"
 
         elif "pdf" in content_type:
