@@ -34,3 +34,18 @@ def test_salvar_tabela_exception_generica():
         assert "Erro inesperado ao processar arquivo_errado.csv" in str(
             logger_mock.error.call_args
         )
+
+def test_salvar_tabela_sucesso():
+    arquivos_mock = {"arquivo_valido.csv": "clientes", "outro_arquivo.csv": "produtos"}
+    df_mock = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+
+    with (
+        patch("database.load_csvs.arquivos", arquivos_mock),
+        patch("pandas.read_csv", return_value=df_mock),
+        patch("database.load_csvs.inserir_dados") as inserir_mock,
+    ):
+        salvar_tabela()
+
+    assert inserir_mock.call_count == 2
+    nomes_tabelas = {call.args[1] for call in inserir_mock.call_args_list}
+    assert nomes_tabelas == {"clientes", "produtos"}

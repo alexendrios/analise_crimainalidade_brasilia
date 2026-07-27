@@ -947,7 +947,7 @@ def tratar_injuria_racial_por_regiao(
 
     linha_header = None
     for i, row in df_raw.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1036,7 +1036,7 @@ def tratar_latrocinio_por_regiao(
 
     linha_header = None
     for i, row in df_raw.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1122,7 +1122,7 @@ def tratar_lesao_corporal_morte_por_regiao(caminho_entrada: str, caminho_saida: 
 
     linha_header = None
     for i, row in df_raw.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1209,7 +1209,7 @@ def tratar_lesao_corporal_morte(caminho_entrada: str, caminho_saida: str):
 
     linha_header = None
     for i, row in df_raw.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1295,7 +1295,7 @@ def tratar_racismo(caminho_entrada: str, caminho_saida: str):
 
     linha_header = None
     for i, row in df_raw.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1404,7 +1404,7 @@ def tratar_roubo_pedestre(caminho_entrada: str, caminho_saida: str):
 
     linha_header = None
     for i, row in df.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1490,7 +1490,7 @@ def tratar_roubo_veiculo(caminho_entrada: str, caminho_saida: str):
 
     linha_header = None
     for i, row in df.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1586,7 +1586,7 @@ def roubo_comercio(caminho_entrada: str, caminho_saida: str):
 
     linha_header = None
     for i, row in df.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header identificado na linha %d", i)
@@ -1683,7 +1683,7 @@ def roubo_transporte_coletivo(caminho_entrada: str, caminho_saida: str):
     # Encontrar linha do header real
     linha_header = None
     for i, row in df.iterrows():
-        valores = row.astype(str).tolist()
+        valores = row.fillna("").astype(str).tolist()
         if any("2015" in v for v in valores) and any("2024" in v for v in valores):
             linha_header = i
             logger.info("Header encontrado na linha %d", i)

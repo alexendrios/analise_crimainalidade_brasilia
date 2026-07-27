@@ -437,3 +437,124 @@ def test_analisar_populacao_preenche_faltantes(
 
     # ------------------ Assert ------------------
     assert df_result.loc[df_result["ano"] == 2001, "populacao"].iloc[0] == 1100
+
+
+# ============================================================
+# Cobertura adicional: walk_forward_ets quando ajustar_ets retorna None
+# ============================================================
+@patch("src.tratamento_populacional.ajustar_ets")
+def test_walk_forward_ets_pula_quando_fit_none(mock_ajustar):
+    mock_ajustar.return_value = None
+
+    serie = pd.Series(
+        range(15),
+        index=pd.date_range("2000", periods=15, freq="YS"),
+    )
+
+    df = mod.walk_forward_ets(serie, min_train=8)
+
+    assert df.empty  # nenhum registro adicionado, pois fit sempre é None
+
+
+# ============================================================
+# Cobertura adicional: time_series_cv para ARIMA/SARIMA e ETS
+# ============================================================
+@patch("src.tratamento_populacional.SARIMAX")
+def test_time_series_cv_arima(mock_sarimax):
+    mock_fit = MagicMock()
+    mock_fit.forecast.return_value = pd.Series([100.0])
+    mock_model = MagicMock()
+    mock_model.fit.return_value = mock_fit
+    mock_sarimax.return_value = mock_model
+
+    serie = pd.Series(range(12), dtype=float)
+
+    metrics, df = mod.time_series_cv("ARIMA", serie, order=(1, 1, 0), initial_train=8)
+
+    assert not df.empty
+    assert "MAE" in metrics
+
+
+@patch("src.tratamento_populacional.SARIMAX")
+def test_time_series_cv_sarima_periodicidade_invalida_e_pulada(mock_sarimax):
+    """seasonal_order[3] <= 1 com sazonalidade ativa deve ser pulado (ValueError capturado)."""
+    serie = pd.Series(range(12), dtype=float)
+
+    metrics, df = mod.time_series_cv(
+        "SARIMA", serie, order=(1, 1, 0), seasonal_order=(1, 0, 0, 1), initial_train=8
+    )
+
+    assert df.empty
+    mock_sarimax.assert_not_called()
+
+
+@patch("src.tratamento_populacional.ExponentialSmoothing")
+def test_time_series_cv_ets(mock_ets):
+    mock_fit = MagicMock()
+    mock_fit.forecast.return_value = pd.Series([50.0])
+    mock_model = MagicMock()
+    mock_model.fit.return_value = mock_fit
+    mock_ets.return_value = mock_model
+
+    serie = pd.Series(range(12), dtype=float)
+
+    metrics, df = mod.time_series_cv("ETS", serie, trend="add", initial_train=8)
+
+    assert not df.empty
+    assert "RMSE" in metrics
+
+
+# ============================================================
+# Cobertura adicional: analisar_populacao remove coluna "arquivo"
+# ============================================================
+@patch("src.tratamento_populacional.pd.read_csv")
+@patch("src.tratamento_populacional.walk_forward_sarimax")
+@patch("src.tratamento_populacional.grid_search_sarimax")
+@patch("src.tratamento_populacional.definir_d")
+@patch("src.tratamento_populacional.walk_forward_ets")
+@patch("src.tratamento_populacional.time_series_cv")
+def test_analisar_populacao_remove_coluna_arquivo(
+    mock_cv,
+    mock_ets,
+    mock_definir_d,
+    mock_grid,
+    mock_walk,
+    mock_read,
+):
+    mock_read.return_value = pd.DataFrame(
+        {
+            "ano": range(2000, 2015),
+            "populacao": range(1000, 1015),
+            "arquivo": ["a.xlsx"] * 15,
+        }
+    )
+
+    mock_definir_d.return_value = (1, pd.DataFrame())
+    mock_grid.return_value = pd.DataFrame(
+        {"p": [1], "d": [1], "q": [0], "aic": [1], "bic": [1]}
+    )
+    mock_walk.return_value = pd.DataFrame({"real": [1], "previsto": [1], "erro": [0]})
+    mock_ets.return_value = pd.DataFrame({"real": [1], "previsto": [1], "erro": [0]})
+    mock_cv.return_value = ({"RMSE": 1}, pd.DataFrame())
+
+    df = mod.analisar_populacao()
+
+    assert "arquivo" not in df.columns
+
+
+@patch("src.tratamento_populacional.ajustar_ets")
+def test_walk_forward_ets_sucesso_gera_previsao(mock_ajustar):
+    mock_fit = MagicMock()
+    mock_fit.forecast.return_value = pd.Series([123.0])
+    mock_ajustar.return_value = mock_fit
+
+    serie = pd.Series(
+        range(15),
+        index=pd.date_range("2000", periods=15, freq="YS"),
+    )
+
+    df = mod.walk_forward_ets(serie, min_train=8)
+
+    assert not df.empty
+    assert "previsto" in df.columns
+    assert (df["previsto"] == 123.0).all()
