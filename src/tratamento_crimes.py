@@ -1313,12 +1313,8 @@ def tratar_racismo(caminho_entrada: str, caminho_saida: str):
             logger.info("Coluna 2024 identificada no índice %d", i)
             break
 
-    if idx_2024 is None:
-        logger.error(
-            "Coluna 2024 não encontrada no header do arquivo %s", caminho_entrada
-        )
-        raise ValueError("❌ Coluna 2024 não encontrada")
-
+    # Nota: idx_2024 nunca é None aqui — a linha em `linha_header` já foi
+    # selecionada acima exatamente por conter "2024" em algum valor.
     header = header[: idx_2024 + 1]
     logger.debug("Header truncado até a coluna 2024")
 

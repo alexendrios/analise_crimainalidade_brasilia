@@ -68,3 +68,23 @@ def test_logs_de_criacao_engine(env_valido, monkeypatch, caplog):
 
     assert any("Iniciando criação do engine" in m for m in mensagens)
     assert any("Engine SQLAlchemy criado com sucesso" in m for m in mensagens)
+
+
+def test_close_engine_com_engine_ativo_faz_dispose(monkeypatch):
+    engine_mock = MagicMock()
+    monkeypatch.setattr(connection, "_engine", engine_mock)
+
+    connection.close_engine()
+
+    engine_mock.dispose.assert_called_once()
+    assert connection._engine is None
+
+
+def test_close_engine_sem_engine_loga_warning(monkeypatch, caplog):
+    monkeypatch.setattr(connection, "_engine", None)
+
+    with caplog.at_level("WARNING"):
+        connection.close_engine()
+
+    mensagens = [r.message for r in caplog.records]
+    assert any("já está encerrado ou não foi criado" in m for m in mensagens)

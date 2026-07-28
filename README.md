@@ -110,7 +110,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 195 testes automatizados, 0 falhas, **99% de cobertura** (`src`, `util`, `database`), limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 322 testes automatizados (303 únicos — ver nota de limpeza abaixo), 0 falhas, **100% de cobertura** em `src`, `util` e `database`, limiar mínimo de 95% (`--cov-fail-under=95`) |
 | **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
 ### 🧩 Interações Principais (fluxo real)
@@ -119,7 +119,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 - **Bronze → Silver:** `src/pipeline_busca_transformacao.py` orquestra sequencialmente as funções de `src/tratamento_crimes.py` e `src/tratamento_populacional.py`, gerando CSVs padronizados em `data/silver/output`.
 - **Silver → Postgres → Gold:** `database/load_csvs.py` carrega os CSVs tratados no Postgres; `src/pipeline_tabela_gold.py` executa os `PipelineStep`s em paralelo, cada um chamando um serviço de domínio (`domain/*.py`) que lê tabelas via `Repository.load`, aplica regras de negócio (padronização de nomes de RA, merges seguros com validação de chaves) e grava o resultado com `Repository.save` (estratégia full refresh).
 - **Gold → Modelagem:** `analysis/data_analyzer.py` lê a tabela `violencia_contra_mulher_gold`, gera features temporais, treina Prophet (tendência) + XGBoost (resíduo em log) e produz uma previsão de 5 anos, salvando o modelo em `models/`.
-- **Execução:** `src/main.py` é o ponto de entrada único; hoje as etapas de coleta/transformação e de tabela gold estão comentadas no arquivo, executando apenas `executar_pipeline()` (etapa de modelagem) — as demais etapas podem ser reativadas descomentando as chamadas.
+- **Execução:** `src/main.py` é o ponto de entrada único; hoje executa as três etapas em sequência — `busca_transformacao_dados()` (coleta+tratamento), `criar_tabela_gold(max_workers=6)` (camada Gold) e `executar_pipeline()` (modelagem). Todas as três estão cobertas por teste (ver seção de Qualidade e Testes).
 
 ## 📁 Estrutura de Diretórios (resumo)
 
@@ -162,9 +162,27 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 
 ## ✅ Qualidade e Testes
 
-- **195 testes** automatizados (`pytest`), **0 falhas**, cobertura de **99%** sobre `src`, `util` e `database` (limiar mínimo configurado: 95%).
+- **303 testes** automatizados (`pytest`), **0 falhas**, **cobertura de 100%** sobre `src`, `util` e `database` (limiar mínimo configurado: 95%, `--cov-fail-under=95`).
 - Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `coverage_report/` (HTML).
-- Suíte organizada por domínio: `tests/arquivos`, `tests/core`, `tests/dados`, `tests/database`, `tests/pipeline`, `tests/rotas`, `tests/scrapings`, `tests/setup`.
+- Suíte organizada por domínio: `tests/arquivos`, `tests/core`, `tests/dados`, `tests/database`, `tests/pipeline`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
+
+### 🔧 Histórico da retomada de cobertura (desta rodada de QA)
+
+A suíte estava documentada como "195 testes, 0 falhas, 99% de cobertura", mas ao rodar de fato revelou-se desatualizada: 16 falhas, 1 arquivo de teste que nem coletava (import quebrado) e cobertura real de ~56%. O trabalho de correção revelou também **bugs reais no código**, não só gaps de teste:
+
+| Bug encontrado | Onde | Causa raiz | Status |
+|:---|:---|:---|:---|
+| `.gitignore` não ignorava `.env` | raiz do projeto | regra `.env/` (barra final = diretório) em vez de `.env` (arquivo) — credenciais versionadas | Sinalizado (ainda pendente de correção) |
+| Arquivos `octet-stream` viravam `.bin` em vez de `.zip` | `util/arquivos.py::detectar_extensao` | mapeamento de Content-Type não tratava esse tipo — zips nunca eram descompactados | **Corrigido** |
+| `filtrar_distrito_federal` parava de reconhecer colunas de texto | `util/leitor_excel.py` | `dtype == object` não bate mais no pandas ≥ 3.0 (novo dtype nativo `str`) | **Corrigido** (`pd.api.types.is_string_dtype`) |
+| Busca de header quebrava com células vazias | 9 funções em `src/tratamento_crimes.py` | `row.astype(str)` não converte `NaN` quando a coluna já é dtype `str` (pandas ≥ 3.0) | **Corrigido** (`row.fillna("").astype(str)`) |
+| Teste órfão de refactor anterior | `tests/pipeline/test_pipeline.py` | importava `main()` de um módulo (`src/pipeline.py`) que não existe mais | **Corrigido/reescrito** |
+| Dependência não declarada | `statsmodels` (usado em `tratamento_populacional.py`) | ausente da lista de dependências conhecidas | Documentado abaixo |
+| Código morto/inatingível | `tratar_racismo` em `src/tratamento_crimes.py` | checagem de "coluna 2024 não encontrada" nunca podia falhar, dado o filtro anterior | **Removido** |
+
+### 🧹 Limpeza realizada
+
+Havia um arquivo duplicado em `tests/core/test_tratamento_crimes_basico1.py` com 19 testes idênticos aos de `tests/core/test_tratamento_crimes_basico.py` (cópia acidental durante o desenvolvimento, gerando 322 execuções em vez de 303). O arquivo foi removido; a contagem de 303 testes acima já reflete essa limpeza.
 
 ## 🚀 Como Executar (ambiente local)
 
@@ -186,14 +204,14 @@ python -m src.main
 pytest
 ```
 
-> ⚠️ **Ponto de atenção:** não foi localizado um arquivo `requirements.txt`/`pyproject.toml` no repositório. As dependências reais (identificadas pelo código) incluem no mínimo: `pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `pytest`, `pytest-cov`, `pytest-html`. Recomenda-se gerar um arquivo de dependências fixado (`pip freeze` do ambiente atual ou `poetry`) para reprodutibilidade.
+> ⚠️ **Ponto de atenção:** não foi localizado um arquivo `requirements.txt`/`pyproject.toml` no repositório. As dependências reais (identificadas pelo código) incluem no mínimo: `pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `pytest`, `pytest-cov`, `pytest-html`. Recomenda-se gerar um arquivo de dependências fixado (`pip freeze` do ambiente atual ou `poetry`) para reprodutibilidade — isso já causou quebras reais quando `pandas` foi instalado na versão 3.x sem pin (ver seção de Qualidade e Testes).
 
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
 - **Padronização de RA espalhada:** a normalização de nomes de Regiões Administrativas (`util/padronizacao.py`) é chamada repetidamente em vários serviços de domínio, com pequenos ajustes pontuais (ex.: `renomear_linha`, `recriar_regiao_com_valor`) espalhados pelo código — candidato a um mapeamento mestre único.
 - **Full Refresh:** toda carga no Postgres recria a tabela (`if_exists="replace"`); não há carga incremental.
 - **Maturidade desigual entre pipelines:** o pipeline Silver (`pipeline_busca_transformacao.py`) é procedural e sequencial; o pipeline Gold (`pipeline_tabela_gold.py`) já usa o padrão declarativo `PipelineStep` + executor paralelo — seria interessante levar o Silver para o mesmo modelo.
-- **`src/main.py` com etapas comentadas:** hoje só a etapa de modelagem é executada por padrão; isso deve ficar explícito para quem for rodar o pipeline completo pela primeira vez.
+- **`src/main.py` executa as três etapas:** coleta/transformação, tabela gold e modelagem rodam em sequência por padrão — todo o fluxo tem cobertura de teste (incluindo o bloco `if __name__ == "__main__":`, coberto via `runpy`).
 - **Modelos sem metadado padronizado:** nem todos os artefatos em `models/` possuem `_meta.json` (os mais recentes, `xgb_residual_log_*`, não geram); padronizar isso ajuda a rastrear qual modelo está em produção.
 
 ## 🗺️ Roadmap / Visão Futura

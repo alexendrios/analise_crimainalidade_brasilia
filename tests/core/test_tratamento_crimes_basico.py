@@ -12,6 +12,15 @@ from src.tratamento_crimes import (
     tratar_crimes_idosos_ranking,
     tratar_crimes_idosos_por_mes,
     crimes_idosos_por_mes,
+    tratar_injuria_racial_por_regiao,
+    tratar_latrocinio_por_regiao,
+    tratar_lesao_corporal_morte_por_regiao,
+    tratar_lesao_corporal_morte,
+    tratar_racismo,
+    tratar_roubo_pedestre,
+    tratar_roubo_veiculo,
+    roubo_comercio,
+    roubo_transporte_coletivo,
 )
 
 
@@ -148,6 +157,26 @@ def test_tratar_furto_veiculo_remove_totais_e_fonte(tmp_path):
     resultado = pd.read_csv(saida, sep=";")
     assert len(resultado) == 1
     assert resultado["Região Administrativa"].tolist() == ["Ceilandia"]
+
+
+def test_tratar_furto_veiculo_remove_colunas_irrelevantes_se_presentes(tmp_path):
+    """Cobre o ramo que loga quando 'unnamed:_0'/'arquivo' realmente existem no CSV."""
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "unnamed:_0;arquivo;x2;x3",
+        "0;a.xlsx;ignora1;ignora2",
+        "1;b.xlsx;2020;2021",
+        "2;c.xlsx;10;20",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    tratar_furto_veiculo(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+    assert "unnamed:_0" not in resultado.columns
+    assert "arquivo" not in resultado.columns
 
 
 # ============================================================
@@ -461,3 +490,350 @@ def test_crimes_idosos_por_mes_fluxo_completo(tmp_path):
     assert linha_jan_2016["registro"].iloc[0] == 10
     assert linha_jan_2016["fato"].iloc[0] == 20
     assert linha_jan_2016["subnotificacao"].iloc[0] == -10
+
+
+# ============================================================
+# tratar_injuria_racial_por_regiao
+# ============================================================
+def test_tratar_injuria_racial_por_regiao_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "x0;titulo;;;;;;;;;;;",
+        "x1;Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024;Variacao 2015-2024",
+        "x2;Ceilandia;10;11;12;13;14;15;16;17;18;19;999",
+        "x3;Total Geral;999;999;999;999;999;999;999;999;999;999;999",
+        "x4;Fonte: SSP-DF;;;;;;;;;;;",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    tratar_injuria_racial_por_regiao(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+
+    assert "variacao_2015_2024" not in resultado.columns
+    assert len(resultado) == 1
+    assert resultado["regiao"].tolist() == ["Ceilandia"]
+    assert resultado["2015"].iloc[0] == 10
+    assert resultado["2024"].iloc[0] == 19
+
+
+def test_tratar_injuria_racial_por_regiao_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["x0;dados sem ano nenhum;a;b;c"]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        tratar_injuria_racial_por_regiao(str(entrada), str(saida))
+
+
+# ============================================================
+# tratar_latrocinio_por_regiao
+# ============================================================
+def test_tratar_latrocinio_por_regiao_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "x0;titulo;;;;;;;;;;",
+        "x1;Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024",
+        "x2;Ceilandia;1;2;3;4;5;6;7;8;9;10",
+        "x3;Taguatinga;-;0;nan;None;1;2;3;4;5;6",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    tratar_latrocinio_por_regiao(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+
+    assert len(resultado) == 2
+    linha_taguatinga = resultado[resultado["regiao"] == "Taguatinga"]
+    # valores inválidos ("-", "nan", "None") viram 0
+    assert linha_taguatinga["2015"].iloc[0] == 0
+    assert linha_taguatinga["2017"].iloc[0] == 0
+    assert linha_taguatinga["2018"].iloc[0] == 0
+    assert linha_taguatinga["2019"].iloc[0] == 1
+
+
+def test_tratar_latrocinio_por_regiao_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["x0;dados sem ano nenhum;a;b;c"]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        tratar_latrocinio_por_regiao(str(entrada), str(saida))
+
+
+# ============================================================
+# tratar_lesao_corporal_morte_por_regiao
+# ============================================================
+def test_tratar_lesao_corporal_morte_por_regiao_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "c0;c1;c2;c3;c4;c5;c6;c7;c8;c9;c10",
+        "Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024",
+        "Ceilandia;1;2;3;4;5;6;7;8;9;10",
+        "Região Administrativa;1;1;1;1;1;1;1;1;1;1",
+        "Taguatinga;-;0;nan;None;1;2;3;4;5;6",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    tratar_lesao_corporal_morte_por_regiao(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+
+    assert "Região Administrativa" not in resultado["regiao"].tolist()
+    assert len(resultado) == 2
+    assert resultado["regiao"].tolist() == ["Ceilandia", "Taguatinga"]
+
+    linha_taguatinga = resultado[resultado["regiao"] == "Taguatinga"]
+    assert linha_taguatinga["2015"].iloc[0] == 0
+    assert linha_taguatinga["2017"].iloc[0] == 0
+    assert linha_taguatinga["2018"].iloc[0] == 0
+
+
+def test_tratar_lesao_corporal_morte_por_regiao_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "c0;c1;c2",
+        "dados;sem;ano_nenhum",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        tratar_lesao_corporal_morte_por_regiao(str(entrada), str(saida))
+
+
+# ============================================================
+# tratar_lesao_corporal_morte
+# ============================================================
+def test_tratar_lesao_corporal_morte_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "x0;titulo;;;;;;;;;;",
+        "x1;Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024",
+        "x2;Ceilandia;1;2;3;4;5;6;7;8;9;10",
+        "x3;Região Administrativa;1;1;1;1;1;1;1;1;1;1",
+        "x4;Taguatinga;-;0;nan;None;1;2;3;4;5;6",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    tratar_lesao_corporal_morte(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+
+    assert "Região Administrativa" not in resultado["regiao"].tolist()
+    assert len(resultado) == 2
+    linha_taguatinga = resultado[resultado["regiao"] == "Taguatinga"]
+    assert linha_taguatinga["2015"].iloc[0] == 0
+    assert linha_taguatinga["2017"].iloc[0] == 0
+
+
+def test_tratar_lesao_corporal_morte_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["x0;dados sem ano nenhum;a;b;c"]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        tratar_lesao_corporal_morte(str(entrada), str(saida))
+
+
+# ============================================================
+# tratar_racismo
+# ============================================================
+def test_tratar_racismo_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "x0;titulo;;;;;;;;;;",
+        "x1;Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024",
+        "x2;Ceilandia;1;2;3;4;5;6;7;8;9;10",
+        "x3;AB;1;1;1;1;1;1;1;1;1;1",
+        "x4;Região Administrativa;1;1;1;1;1;1;1;1;1;1",
+        "x5;Taguatinga;-;*;;nan;None;1;2;3;4",
+    ]
+    # Escrito em utf-8: a função lê com encoding="latin1" (simula o mojibake
+    # real que o encode('latin1').decode('utf-8') do código foi feito para
+    # corrigir) — por isso "Região Administrativa" chega intacta ao filtro.
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    tratar_racismo(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+
+    assert len(resultado) == 2  # "AB" (len<=2) e "Região Administrativa" removidos
+    assert set(resultado["regiao"]) == {"Ceilandia", "Taguatinga"}
+
+    linha_taguatinga = resultado[resultado["regiao"] == "Taguatinga"]
+    assert linha_taguatinga["2015"].iloc[0] == 0
+    assert linha_taguatinga["2016"].iloc[0] == 0
+
+
+def test_tratar_racismo_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["x0;dados sem ano nenhum;a;b;c"]
+    entrada.write_text("\n".join(linhas), encoding="latin1")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        tratar_racismo(str(entrada), str(saida))
+
+
+# ============================================================
+# tratar_roubo_pedestre
+# ============================================================
+def test_tratar_roubo_pedestre_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "h0;h1;h2;h3;h4;h5;h6;h7;h8;h9;h10",
+        "Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024",
+        "Ceilandia;1;2;3;4;5;6;7;8;9;10",
+        "AB;1;1;1;1;1;1;1;1;1;1",
+        "Taguatinga;-;*;1;2;3;4;5;6;7",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    tratar_roubo_pedestre(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+
+    assert len(resultado) == 2  # "AB" (len<=2) removida
+    assert set(resultado["Região Administrativa"]) == {"Ceilandia", "Taguatinga"}
+
+    linha_taguatinga = resultado[resultado["Região Administrativa"] == "Taguatinga"]
+    assert linha_taguatinga["2015"].iloc[0] == 0
+    assert linha_taguatinga["2016"].iloc[0] == 0
+
+
+def test_tratar_roubo_pedestre_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["h0;h1;h2", "dados;sem;ano"]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        tratar_roubo_pedestre(str(entrada), str(saida))
+
+
+# ============================================================
+# tratar_roubo_veiculo (com coluna extra além de 2024, testa o corte)
+# ============================================================
+def test_tratar_roubo_veiculo_fluxo_completo_e_corta_coluna_extra(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "h0;h1;h2;h3;h4;h5;h6;h7;h8;h9;h10;h11",
+        "Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024;2025",
+        "Ceilandia;1;2;3;4;5;6;7;8;9;10;999",
+        "AB;1;1;1;1;1;1;1;1;1;1;999",
+        "Taguatinga;-;*;1;2;3;4;5;6;7;8;999",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    tratar_roubo_veiculo(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+
+    assert "2025" not in resultado.columns  # coluna extra além de 2024 foi cortada
+    assert len(resultado) == 2
+    linha_taguatinga = resultado[resultado["Região Administrativa"] == "Taguatinga"]
+    assert linha_taguatinga["2015"].iloc[0] == 0
+    assert linha_taguatinga["2024"].iloc[0] == 8
+
+
+def test_tratar_roubo_veiculo_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["h0;h1;h2", "dados;sem;ano"]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        tratar_roubo_veiculo(str(entrada), str(saida))
+
+
+# ============================================================
+# roubo_comercio
+# ============================================================
+def test_roubo_comercio_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "h0;h1;h2;h3;h4;h5;h6;h7;h8;h9;h10",
+        "Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024",
+        "Ceilandia;1;2;3;4;5;6;7;8;9;10",
+        "AB;1;1;1;1;1;1;1;1;1;1",
+        "Taguatinga;-;*;1;2;3;4;5;6;7",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    roubo_comercio(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+    assert len(resultado) == 2
+    assert set(resultado["Região Administrativa"]) == {"Ceilandia", "Taguatinga"}
+
+
+def test_roubo_comercio_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["h0;h1;h2", "dados;sem;ano"]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        roubo_comercio(str(entrada), str(saida))
+
+
+# ============================================================
+# roubo_transporte_coletivo
+# ============================================================
+def test_roubo_transporte_coletivo_fluxo_completo(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = [
+        "h0;h1;h2;h3;h4;h5;h6;h7;h8;h9;h10",
+        "Regiao;2015;2016;2017;2018;2019;2020;2021;2022;2023;2024",
+        "Ceilandia;1;2;3;4;5;6;7;8;9;10",
+        "AB;1;1;1;1;1;1;1;1;1;1",
+        "Taguatinga;-;*;1;2;3;4;5;6;7",
+    ]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    roubo_transporte_coletivo(str(entrada), str(saida))
+
+    resultado = pd.read_csv(saida, sep=";")
+    assert len(resultado) == 2
+    assert set(resultado["Região Administrativa"]) == {"Ceilandia", "Taguatinga"}
+
+
+def test_roubo_transporte_coletivo_sem_header_levanta_erro(tmp_path):
+    entrada = tmp_path / "entrada.csv"
+    saida = tmp_path / "saida.csv"
+
+    linhas = ["h0;h1;h2", "dados;sem;ano"]
+    entrada.write_text("\n".join(linhas), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="Header não encontrado"):
+        roubo_transporte_coletivo(str(entrada), str(saida))
