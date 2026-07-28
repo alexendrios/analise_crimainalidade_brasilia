@@ -1,24 +1,21 @@
 # Ambiente virtual
 venv/
-.env/
-.env.*
+.env
 
 # Cache do Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-
 .pytest_cache/
 
 # Diretórios de dados e logs (mantém a pasta, ignora arquivos)
 data/
 data/*
 !data/.gitkeep
-
-
-logs/*
+logs/
 !logs/.gitkeep
+models/
 
 # Arquivos temporários gerais
 *.log
