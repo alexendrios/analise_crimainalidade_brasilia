@@ -15,7 +15,7 @@ data/*
 !data/.gitkeep
 logs/
 !logs/.gitkeep
-models/
+
 
 # Arquivos temporários gerais
 *.log

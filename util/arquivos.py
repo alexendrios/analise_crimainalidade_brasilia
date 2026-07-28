@@ -56,114 +56,144 @@ def limpar_diretorios():
     logger.info("*****************************************************\n")
     return logger
 
-def download_arquivo(url: str, nome_arquivo: str):
+
+def download_arquivo(url: str, nome_arquivo: str, max_tentativas: int = 3):
     start = time.time()
     logger.info(f"Iniciando download: {nome_arquivo}")
     logger.info(f"URL: {url}")
 
     file_path = None
-    file_obj = None
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+    tentativas_realizadas = 0
 
-    headers = {"User-Agent": "Mozilla/5.0"}
+    for tentativa in range(1, max_tentativas + 1):
+        tentativas_realizadas = tentativa
+        temp_file_path = None
+        logger.info(f"--- Tentativa {tentativa} de {max_tentativas} ---")
 
-    try:
-        # Aguarda 4 segundo antes de iniciar a requisição
-        sleep(4)
-        
-        response = requests.get(
-            url, headers=headers, stream=True, timeout=80, allow_redirects=True
-        )
+        try:
+            sleep(1)
 
-        logger.info(f"Status Code: {response.status_code}")
-        logger.info(f"URL final: {response.url}")
-        logger.info(f"Content-Type: {response.headers.get('Content-Type')}")
+            response = requests.get(
+                url, headers=headers, stream=True, timeout=80, allow_redirects=True
+            )
 
-        response.raise_for_status()
-        
-        content_type = response.headers.get("Content-Type", "").lower()
+            logger.info(f"Status Code: {response.status_code}")
+            logger.info(f"URL final: {response.url}")
 
-        # Se a API retornou JSON, registra a mensagem e interrompe
-        if "application/json" in content_type:
-            logger.error(f"Resposta da API: {response.text}")
-            return None
+            content_type = response.headers.get("Content-Type", "").lower()
+            logger.info(f"Content-Type: {content_type}")
 
-        # Tipos permitidos
-        tipos_permitidos = [
-            "csv",
-            "excel",
-            "spreadsheetml",
-            "zip",
-            "compressed",
-            "octet-stream",
-        ]
+            # Lança HTTPError se o status for 4xx ou 5xx
+            response.raise_for_status()
 
-        if not any(tp in content_type for tp in tipos_permitidos):
-            logger.warning(f"Tipo de conteúdo não suportado: {content_type}")
-            return None
+            # Resposta em JSON geralmente indica erro retornado pela API
+            if "application/json" in content_type:
+                logger.error(f"Resposta inesperada em JSON da API: {response.text}")
+                raise Exception(
+                    "API retornou resposta em JSON (provável erro do servidor)."
+                )
 
-        # Detecta extensão real
-        # Detecta extensão real
-        ext, folder = detectar_extensao(response, nome_arquivo)
-        os.makedirs(folder, exist_ok=True)
+            # Filtro de tipos permitidos
+            tipos_permitidos = [
+                "csv",
+                "excel",
+                "spreadsheetml",
+                "zip",
+                "compressed",
+                "octet-stream",
+            ]
 
-        base, _ = os.path.splitext(nome_arquivo)
-        if not base:
-          base = nome_arquivo
+            if not any(tp in content_type for tp in tipos_permitidos):
+                logger.warning(f"Tipo de conteúdo não suportado: {content_type}")
+                raise Exception(f"Tipo de conteúdo não suportado: {content_type}")
 
-        file_path = os.path.join(folder, f"{base}{ext}")
-        total_size = int(response.headers.get("content-length", 0))
-        total_bytes = 0
+            # Detecta extensão e pasta de destino
+            ext, folder = detectar_extensao(response, nome_arquivo)
+            os.makedirs(folder, exist_ok=True)
 
-        with tqdm(
-            total=total_size if total_size > 0 else None,
-            unit="B",
-            unit_scale=True,
-            desc=f"Baixando {nome_arquivo}",
-            ncols=80,
-        ) as progress:
-            for chunk in response.iter_content(chunk_size=8192):
-                if chunk:
-                    if file_obj is None:
-                        file_obj = open(file_path, "wb")
+            base, _ = os.path.splitext(nome_arquivo)
+            base_name = base if base else nome_arquivo
 
-                    file_obj.write(chunk)
-                    progress.update(len(chunk))
-                    total_bytes += len(chunk)
+            file_path = os.path.join(folder, f"{base_name}{ext}")
+            temp_file_path = f"{file_path}.tmp"
 
-        if file_obj:
-            file_obj.close()
-
-        if total_bytes == 0:
-            if file_path and os.path.exists(file_path):
+            # Garantia de download do zero: apaga arquivos antigos
+            if os.path.exists(file_path):
                 os.remove(file_path)
+            if os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
 
-            logger.warning("Arquivo vazio, download abortado.")
-            return None
+            total_size = int(response.headers.get("content-length", 0))
+            total_bytes = 0
 
-        logger.info(f"Arquivo salvo em: {file_path}")
-        logger.info("Download concluído com sucesso!")
-        return file_path
+            # Download em chunks salvando primeiramente no arquivo temporário (.tmp)
+            with (
+                open(temp_file_path, "wb") as f,
+                tqdm(
+                    total=total_size if total_size > 0 else None,
+                    unit="B",
+                    unit_scale=True,
+                    desc=f"Baixando {nome_arquivo} (Tentativa {tentativa})",
+                    ncols=80,
+                ) as progress,
+            ):
+                for chunk in response.iter_content(chunk_size=8192):
+                    if chunk:
+                        f.write(chunk)
+                        progress.update(len(chunk))
+                        total_bytes += len(chunk)
 
-    except requests.HTTPError:
-        logger.error(
-            f"Erro HTTP {response.status_code}: {response.text}", exc_info=True
-        )
+            if total_bytes == 0:
+                if os.path.exists(temp_file_path):
+                    os.remove(temp_file_path)
+                logger.warning("Arquivo vazio obtido na tentativa.")
+                raise Exception("O servidor retornou um arquivo de 0 bytes.")
 
-    except Exception as e:
-        logger.error(f"Erro no download: {e}", exc_info=True)
+            # Substituição atômica do arquivo temporário pelo definitivo
+            os.replace(temp_file_path, file_path)
 
-    finally:
-        if file_obj and not file_obj.closed:
-            file_obj.close()
+            logger.info(f"Arquivo salvo em: {file_path}")
+            logger.info("Download concluído com sucesso!")
 
-        if file_path and os.path.exists(file_path) and os.path.getsize(file_path) == 0:
-            os.remove(file_path)
+            tempo_total = time.time() - start
+            logger.info(f"Tempo total: {tempo_total:.2f} segundos")
+            logger.info("*****************************************************\n")
+            return file_path
 
-        tempo_total = time.time() - start
-        logger.info(f"Tempo total: {tempo_total:.2f} segundos")
-        logger.info("*****************************************************\n")
+        except requests.exceptions.HTTPError as e:
+            status_code = (
+                e.response.status_code if e.response is not None else "Desconhecido"
+            )
+            logger.error(f"Erro HTTP {status_code} na tentativa {tentativa}: {e}")
 
-    return None 
+        except Exception as e:
+            logger.error(
+                f"Erro na tentativa {tentativa} de download de {nome_arquivo}: {e}"
+            )
+
+        finally:
+            # Limpa arquivo temporário em caso de falha da tentativa
+            if temp_file_path and os.path.exists(temp_file_path):
+                os.remove(temp_file_path)
+
+        # Se ainda restarem tentativas, aguarda antes da próxima rodada
+        if tentativa < max_tentativas:
+            tempo_espera = 5 * tentativa
+            logger.info(f"Aguardando {tempo_espera}s antes da próxima tentativa...")
+            sleep(tempo_espera)
+
+    # Limpeza final se necessário
+    if file_path and os.path.exists(file_path) and os.path.getsize(file_path) == 0:
+        os.remove(file_path)
+
+    tempo_total = time.time() - start
+    logger.error(
+        f"Falha ao realizar o download após {tentativas_realizadas} tentativa(s). Tempo total: {tempo_total:.2f} segundos"
+    )
+    logger.info("*****************************************************\n")
+
+    return None
 
 def detectar_extensao(response, nome_arquivo):
     """
