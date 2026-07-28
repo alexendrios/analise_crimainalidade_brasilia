@@ -1,6 +1,8 @@
 # Projeto Criminalidade Brasília - DF
 
 > **Nota de atualização:** esta documentação foi revisada para refletir o que está **efetivamente implementado no código** na data desta análise. A versão anterior descrevia uma arquitetura geoespacial com PostGIS, malha hexagonal, dashboard Streamlit e API FastAPI — nenhum desses componentes existe hoje no repositório. Eles foram movidos para a seção [Roadmap](#-roadmap--visão-futura), mantidos apenas como direção futura possível.
+>
+> **Revisão mais recente (commit `ade0c3d`):** os números de teste/cobertura abaixo foram reexecutados e confirmados (**303 testes, 0 falhas, 100% de cobertura**). Duas informações desatualizadas foram corrigidas: o repositório **passou a ter `requirements.txt`** (a seção "Como Executar" foi ajustada) e a antiga pasta `docs/` (com `projeto.md`) **foi removida** — este `README.md` é hoje a única documentação do projeto. Detalhes em [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -135,9 +137,12 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | `util/` | Utilitários (leitura de Excel, extração de zip, logging, padronização de nomes de RA) |
 | `config/` | Configuração de datasets (`datasets_config.py`) e paths |
 | `models/` | Modelos treinados (`.pkl`) e metadados (`_meta.json`) de cada execução |
-| `data/` | Camadas `bronze/`, `silver/`, `gold/` do lakehouse local |
-| `tests/` | Suíte de testes (`arquivos`, `core`, `dados`, `database`, `pipeline`, `rotas`, `scrapings`, `setup`) |
+| `data/` | Camadas `bronze/`, `silver/`, `gold/` do lakehouse local (gerada em runtime; ignorada pelo Git, ver `.gitignore`) |
+| `tests/` | Suíte de testes (`arquivos`, `core`, `dados`, `database`, `pipeline`, `rotas`, `scrapings`, `setup`, `util`) |
 | `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
+| `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
+
+> A antiga pasta `docs/` (com `projeto.md`, `image.png` e `image-1.png`) foi removida do repositório; as imagens de arquitetura hoje ficam na raiz (`image.png`, `image-1.png`) e este `README.md` é a documentação central do projeto.
 
 ## 🗃️ Tabelas Gold Geradas
 
@@ -172,7 +177,7 @@ A suíte estava documentada como "195 testes, 0 falhas, 99% de cobertura", mas a
 
 | Bug encontrado | Onde | Causa raiz | Status |
 |:---|:---|:---|:---|
-| `.gitignore` não ignorava `.env` | raiz do projeto | regra `.env/` (barra final = diretório) em vez de `.env` (arquivo) — credenciais versionadas | Sinalizado (ainda pendente de correção) |
+| `.gitignore` não ignorava `.env` | raiz do projeto | regra `.env/` (barra final = diretório) em vez de `.env` (arquivo) | **Parcialmente corrigido:** a regra em `.gitignore` já foi ajustada para `.env` (commit `ade0c3d`), mas o arquivo `.env` **continua rastreado pelo Git** (já estava commitado antes do ajuste, e alterar o `.gitignore` não desfaz isso). Ainda é necessário `git rm --cached .env` + commit, e rotacionar qualquer credencial que já tenha sido exposta no histórico |
 | Arquivos `octet-stream` viravam `.bin` em vez de `.zip` | `util/arquivos.py::detectar_extensao` | mapeamento de Content-Type não tratava esse tipo — zips nunca eram descompactados | **Corrigido** |
 | `filtrar_distrito_federal` parava de reconhecer colunas de texto | `util/leitor_excel.py` | `dtype == object` não bate mais no pandas ≥ 3.0 (novo dtype nativo `str`) | **Corrigido** (`pd.api.types.is_string_dtype`) |
 | Busca de header quebrava com células vazias | 9 funções em `src/tratamento_crimes.py` | `row.astype(str)` não converte `NaN` quando a coluna já é dtype `str` (pandas ≥ 3.0) | **Corrigido** (`row.fillna("").astype(str)`) |
@@ -195,7 +200,7 @@ docker compose up -d
 # 3. Instalar dependências em um ambiente virtual
 python -m venv venv
 source venv/bin/activate
-pip install -r requirements.txt   # ⚠️ ver nota abaixo
+pip install -r requirements.txt
 
 # 4. Rodar o pipeline (editar src/main.py para habilitar as etapas desejadas)
 python -m src.main
@@ -204,7 +209,7 @@ python -m src.main
 pytest
 ```
 
-> ⚠️ **Ponto de atenção:** não foi localizado um arquivo `requirements.txt`/`pyproject.toml` no repositório. As dependências reais (identificadas pelo código) incluem no mínimo: `pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `pytest`, `pytest-cov`, `pytest-html`. Recomenda-se gerar um arquivo de dependências fixado (`pip freeze` do ambiente atual ou `poetry`) para reprodutibilidade — isso já causou quebras reais quando `pandas` foi instalado na versão 3.x sem pin (ver seção de Qualidade e Testes).
+> ⚠️ **Ponto de atenção:** o `requirements.txt` existe no repositório e instala corretamente todas as dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `pytest`, `pytest-cov`, `pytest-html` — confirmado nesta revisão rodando a suíte completa a partir dele). Porém é um `pip freeze` bruto do ambiente de desenvolvimento, não uma lista curada: mistura dependências de execução com ferramentas de ambiente local que o projeto não usa em tempo de execução (`jupyter`, `notebook`, `ipykernel`, `matplotlib`, `plotly`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows e pode falhar a instalação em Linux/macOS). Recomenda-se separar um `requirements.txt` mínimo de produção de um `requirements-dev.txt` para notebooks/testes de integração.
 
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
@@ -213,6 +218,8 @@ pytest
 - **Maturidade desigual entre pipelines:** o pipeline Silver (`pipeline_busca_transformacao.py`) é procedural e sequencial; o pipeline Gold (`pipeline_tabela_gold.py`) já usa o padrão declarativo `PipelineStep` + executor paralelo — seria interessante levar o Silver para o mesmo modelo.
 - **`src/main.py` executa as três etapas:** coleta/transformação, tabela gold e modelagem rodam em sequência por padrão — todo o fluxo tem cobertura de teste (incluindo o bloco `if __name__ == "__main__":`, coberto via `runpy`).
 - **Modelos sem metadado padronizado:** nem todos os artefatos em `models/` possuem `_meta.json` (os mais recentes, `xgb_residual_log_*`, não geram); padronizar isso ajuda a rastrear qual modelo está em produção.
+- **Artefato de desenvolvimento versionado:** o arquivo `correcoes.patch` (diff de correções de testes de uma rodada de QA anterior, ~300 linhas) está commitado na raiz do repositório desde a task 19 e já foi aplicado ao código — não tem função em produção nem serve como changelog formal. Candidato a remoção (`git rm correcoes.patch`) ou, se o histórico for valioso, mover o conteúdo para um `CHANGELOG.md`.
+- **`requirements.txt` não é um manifesto curado:** conforme detalhado na seção "Como Executar", o arquivo é um `pip freeze` do ambiente de desenvolvimento e inclui pacotes que não são dependências do projeto em si (Jupyter, matplotlib, plotly, shap, docker, testcontainers, e o pacote `pywin32`, específico de Windows).
 
 ## 🗺️ Roadmap / Visão Futura
 
