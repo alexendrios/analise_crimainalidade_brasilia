@@ -13,15 +13,18 @@ from urllib.parse import urlparse
 config = get_config()
 logger = logs()
 
+
 def limpar_diretorios():
     """
-    Remove arquivos CSV, XLSX e LOG antes da execução.
+    Remove arquivos CSV, XLSX, XLS, PDF, ZIP e LOG antes da execução.
     Não remove diretórios, apenas os arquivos internos.
     """
-        # Fechar handlers antes de deletar arquivos de log
+    global logger  # Permite reatribuir a variável global 'logger' ao final
+
+    # Fechar handlers antes de deletar arquivos de log
     fechar_loggers()
 
-    print("Removendo diretórios...")
+    print("Removendo arquivos dos diretórios...")
 
     pastas = {
         "./data/bronze/csv/*.csv": "Arquivos CSV",
@@ -32,8 +35,8 @@ def limpar_diretorios():
         "./logs/*.log": "Arquivos de LOG",
         "./data/silver/output/*.csv": "Arquivos CSV de saída",
     }
+
     for padrao, descricao in pastas.items():
-  
         arquivos = glob.glob(padrao)
 
         if not arquivos:
@@ -44,39 +47,56 @@ def limpar_diretorios():
             try:
                 os.remove(arquivo)
                 print(f"Removido: {arquivo}")
-            except Exception as e: # pragma: no cover
+            except Exception as e:  # pragma: no cover
                 print(f"Erro ao remover {arquivo}: {e}")
 
-    # Recriar logger depois que os logs foram apagados
+    # Recriar logger global depois que os logs antigos foram apagados
     logger = logs()
 
     logger.info("*****************************************************")
     logger.info("Limpeza concluída")
     logger.info("Diretórios limpos e logger reiniciado corretamente.")
     logger.info("*****************************************************\n")
+
     return logger
 
 
-def download_arquivo(url: str, nome_arquivo: str, max_tentativas: int = 3):
+def download_arquivo(url: str, nome_arquivo: str, max_tentativas: int = 5):
     start = time.time()
     logger.info(f"Iniciando download: {nome_arquivo}")
     logger.info(f"URL: {url}")
 
     file_path = None
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
     tentativas_realizadas = 0
 
     for tentativa in range(1, max_tentativas + 1):
         tentativas_realizadas = tentativa
         temp_file_path = None
+
         logger.info(f"--- Tentativa {tentativa} de {max_tentativas} ---")
 
         try:
             sleep(1)
 
-            response = requests.get(
-                url, headers=headers, stream=True, timeout=80, allow_redirects=True
-            )
+            # Cria uma nova sessão HTTP a cada tentativa
+            with requests.Session() as session:
+                # Limpa cookies e força uma nova conexão
+                session.cookies.clear()
+
+                headers = {
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+                    "Connection": "close",
+                    "Cache-Control": "no-cache",
+                    "Pragma": "no-cache",
+                }
+
+                response = session.get(
+                    url,
+                    headers=headers,
+                    stream=True,
+                    timeout=30,
+                    allow_redirects=True,
+                )
 
             logger.info(f"Status Code: {response.status_code}")
             logger.info(f"URL final: {response.url}")
@@ -118,16 +138,15 @@ def download_arquivo(url: str, nome_arquivo: str, max_tentativas: int = 3):
             file_path = os.path.join(folder, f"{base_name}{ext}")
             temp_file_path = f"{file_path}.tmp"
 
-            # Garantia de download do zero: apaga arquivos antigos
+            # Garante download do zero
             if os.path.exists(file_path):
                 os.remove(file_path)
             if os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
-            total_size = int(response.headers.get("content-length", 0))
+            total_size = int(response.headers.get("Content-Length", 0))
             total_bytes = 0
 
-            # Download em chunks salvando primeiramente no arquivo temporário (.tmp)
             with (
                 open(temp_file_path, "wb") as f,
                 tqdm(
@@ -150,7 +169,7 @@ def download_arquivo(url: str, nome_arquivo: str, max_tentativas: int = 3):
                 logger.warning("Arquivo vazio obtido na tentativa.")
                 raise Exception("O servidor retornou um arquivo de 0 bytes.")
 
-            # Substituição atômica do arquivo temporário pelo definitivo
+            # Substitui o arquivo temporário pelo definitivo
             os.replace(temp_file_path, file_path)
 
             logger.info(f"Arquivo salvo em: {file_path}")
@@ -159,6 +178,7 @@ def download_arquivo(url: str, nome_arquivo: str, max_tentativas: int = 3):
             tempo_total = time.time() - start
             logger.info(f"Tempo total: {tempo_total:.2f} segundos")
             logger.info("*****************************************************\n")
+
             return file_path
 
         except requests.exceptions.HTTPError as e:
@@ -173,27 +193,27 @@ def download_arquivo(url: str, nome_arquivo: str, max_tentativas: int = 3):
             )
 
         finally:
-            # Limpa arquivo temporário em caso de falha da tentativa
             if temp_file_path and os.path.exists(temp_file_path):
                 os.remove(temp_file_path)
 
-        # Se ainda restarem tentativas, aguarda antes da próxima rodada
         if tentativa < max_tentativas:
             tempo_espera = 5 * tentativa
             logger.info(f"Aguardando {tempo_espera}s antes da próxima tentativa...")
             sleep(tempo_espera)
 
-    # Limpeza final se necessário
+    # Remove arquivo vazio caso exista
     if file_path and os.path.exists(file_path) and os.path.getsize(file_path) == 0:
         os.remove(file_path)
 
     tempo_total = time.time() - start
     logger.error(
-        f"Falha ao realizar o download após {tentativas_realizadas} tentativa(s). Tempo total: {tempo_total:.2f} segundos"
+        f"Falha ao realizar o download após {tentativas_realizadas} tentativa(s). "
+        f"Tempo total: {tempo_total:.2f} segundos"
     )
     logger.info("*****************************************************\n")
 
     return None
+
 
 def detectar_extensao(response, nome_arquivo):
     """

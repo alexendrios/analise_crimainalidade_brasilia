@@ -1,6 +1,6 @@
 {
-    "created_at": "2026-07-28T17:10:34.475830",
-    "model_file": "xgb_residual_log_20260728_1707.pkl",
+    "created_at": "2026-07-28T21:51:24.241717",
+    "model_file": "xgb_residual_log_20260728_2149.pkl",
     "model_type": "XGBRegressor",
     "metrics": {
         "mae": 0.1442812562114787,
