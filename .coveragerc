@@ -1,3 +1,28 @@
 [run]
+
+branch = True
+
 omit =
-    */__int__.py
+    */__init__.py
+    */tests/*
+    */test_*.py
+    */conftest.py
+    */__pycache__/*
+    */venv/*
+    */.venv/*
+    */site-packages/*
+
+
+[report]
+
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__:
+    raise NotImplementedError
+
+
+[html]
+
+directory = test_report/coverage
+
+title = Criminalidade Brasília - DF - Cobertura de Código

@@ -31,4 +31,4 @@ logs/
 Thumbs.db
 
 test_report/
-coverage_report/
+test_report/*
