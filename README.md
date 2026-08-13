@@ -207,9 +207,45 @@ python -m src.main
 
 # 5. Rodar a suíte de testes
 pytest
+
+# 6. Subir a API (camada de consumo)
+uvicorn api.main:app --reload --port 8000
+# Documentação interativa (Swagger): http://localhost:8000/docs
 ```
 
 > ⚠️ **Ponto de atenção:** o `requirements.txt` existe no repositório e instala corretamente todas as dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `pytest`, `pytest-cov`, `pytest-html` — confirmado nesta revisão rodando a suíte completa a partir dele). Porém é um `pip freeze` bruto do ambiente de desenvolvimento, não uma lista curada: mistura dependências de execução com ferramentas de ambiente local que o projeto não usa em tempo de execução (`jupyter`, `notebook`, `ipykernel`, `matplotlib`, `plotly`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows e pode falhar a instalação em Linux/macOS). Recomenda-se separar um `requirements.txt` mínimo de produção de um `requirements-dev.txt` para notebooks/testes de integração.
+
+## 🌐 Camada de Consumo (API — `api/`)
+
+Uma API REST em **FastAPI** expõe as tabelas gold e o modelo preditivo sem alterar o pipeline de coleta/tratamento/modelagem existente — ela apenas reaproveita `ingestion/repository_adapter.py`, `database/repository/repository.py` e `analysis/data_analyzer.py`.
+
+```
+api/
+├── main.py                      # app FastAPI + endpoint /health
+├── config.py                    # catálogo de tabelas gold expostas
+├── schemas.py                   # contratos Pydantic de entrada/saída
+├── routers/
+│   ├── gold.py                  # /gold/*
+│   └── previsao.py              # /previsao/*
+└── services/
+    ├── gold_service.py          # paginação, filtros, resumo estatístico
+    └── forecast_service.py      # treina/serve o modelo Prophet + XGBoost
+```
+
+**Endpoints principais:**
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/health` | Status da API e da conexão com o Postgres |
+| GET | `/gold/tabelas` | Catálogo de tabelas gold conhecidas (e se já existem no banco) |
+| GET | `/gold/{tabela}/resumo` | Estatísticas descritivas (linhas, colunas, nulos) |
+| GET | `/gold/{tabela}/dados` | Registros paginados, com filtros `ano_min`, `ano_max`, `regiao_administrativa` |
+| GET | `/previsao/crimes-contra-mulher` | Previsão híbrida Prophet+XGBoost (`horizonte_anos`, `usar_cache`, `persistir_modelo`) |
+| GET | `/previsao/modelos` | Lista os modelos já persistidos em `models/*_meta.json` |
+
+**Decisão de design importante:** os artefatos em `models/*.pkl` guardam apenas o regressor XGBoost do resíduo — o `Prophet` correspondente não é serializado (ponto de atenção já registrado abaixo). Por isso, `GET /previsao/crimes-contra-mulher` re-treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente, com um cache em memória de 30 min (`usar_cache=false` força retreino; `persistir_modelo=true` salva o artefato como o pipeline batch faria). Isso mantém a API sempre consistente com os dados mais recentes, ao custo de uma primeira chamada mais lenta — um passo natural de evolução seria persistir também o Prophet e servir por padrão a partir do artefato, com um endpoint separado de retrain explícito.
+
+Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade).
 
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
@@ -241,5 +277,7 @@ Os itens abaixo **não existem no código atual** — são direções possíveis
 - Exportação de relatório executivo (PDF/Markdown) com os principais insights de cada previsão.
 
 ### Camada de consumo
-- Dashboard interativo (Streamlit/Plotly) para mapas, séries temporais e aba de previsões.
-- API (ex.: FastAPI) para expor previsões e métricas a sistemas externos.
+- ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.
+- Dashboard interativo (Streamlit/Plotly) consumindo essa API, para mapas, séries temporais e aba de previsões.
+- Autenticação/API key e rate limiting, caso a API passe a ser exposta publicamente.
+- Persistir o modelo Prophet junto ao XGBoost em `models/`, permitindo que `/previsao` sirva a partir do artefato salvo por padrão, com endpoint de retrain explícito separado.

@@ -1,0 +1,45 @@
+{
+    "created_at": "2026-08-12T14:24:31.686378",
+    "model_file": "xgb_residual_log_20260812_1423.pkl",
+    "model_type": "XGBRegressor",
+    "metrics": {
+        "mae": 0.1442812562114787,
+        "rmse": 0.1940263959897142
+    },
+    "hyperparameters": {
+        "n_estimators": 600,
+        "learning_rate": 0.015,
+        "max_depth": 3,
+        "subsample": 0.8,
+        "colsample_bytree": 0.8,
+        "reg_alpha": 0.5,
+        "reg_lambda": 2,
+        "random_state": 42
+    },
+    "features": [
+        "lag_1",
+        "lag_2",
+        "rolling_mean_2",
+        "rolling_mean_3",
+        "taxa_feminicidio",
+        "feminicidio_lag_1",
+        "trend",
+        "ano_num",
+        "diff_1"
+    ],
+    "target": "residual_log",
+    "dataset_info": {
+        "source_table": "violencia_contra_mulher_gold",
+        "target_column": "crimes_contra_mulher",
+        "total_records": 344,
+        "period_min": "2015",
+        "period_max": "2025"
+    },
+    "extra": {
+        "residual_bounds": {
+            "min": -0.6189039356345883,
+            "max": 0.8027356551688797
+        },
+        "forecast_horizon_years": 5
+    }
+}

@@ -1,0 +1,190 @@
+from unittest.mock import patch
+
+import pandas as pd
+import pytest
+from fastapi.testclient import TestClient
+
+from api.main import app
+from api.services import forecast_service
+
+client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def limpar_cache():
+    forecast_service.limpar_cache()
+    yield
+    forecast_service.limpar_cache()
+
+
+def test_health_banco_ok():
+    with patch("api.main.listar_tabelas", return_value=["violencia_contra_mulher_gold"]):
+        resp = client.get("/health")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["status"] == "ok"
+    assert body["database"] == "ok"
+
+
+def test_health_banco_indisponivel_nao_derruba_api():
+    with patch("api.main.listar_tabelas", side_effect=Exception("conexão recusada")):
+        resp = client.get("/health")
+
+    assert resp.status_code == 200
+    assert "erro" in resp.json()["database"]
+
+
+def test_listar_tabelas_gold():
+    with patch(
+        "api.services.gold_service.listar_tabelas",
+        return_value=["violencia_contra_mulher_gold"],
+    ):
+        resp = client.get("/gold/tabelas")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] > 0
+    nomes = {t["nome"] for t in body["tabelas"]}
+    assert "violencia_contra_mulher_gold" in nomes
+
+
+def test_resumo_tabela_invalida_retorna_404():
+    resp = client.get("/gold/tabela_que_nao_existe/resumo")
+
+    assert resp.status_code == 404
+
+
+def test_resumo_tabela_sucesso():
+    resumo_fake = {
+        "tabela": "violencia_contra_mulher_gold",
+        "linhas": 5,
+        "colunas": 3,
+        "nulos_total": 0,
+        "colunas_com_nulos": 0,
+        "tempo_execucao_s": 0.02,
+    }
+    with patch("api.services.gold_service.analisar_tabela", return_value=resumo_fake):
+        resp = client.get("/gold/violencia_contra_mulher_gold/resumo")
+
+    assert resp.status_code == 200
+    assert resp.json() == resumo_fake
+
+
+def test_resumo_tabela_banco_indisponivel_retorna_503():
+    with patch(
+        "api.services.gold_service.analisar_tabela", side_effect=Exception("timeout")
+    ):
+        resp = client.get("/gold/violencia_contra_mulher_gold/resumo")
+
+    assert resp.status_code == 503
+
+
+def test_dados_tabela_nao_materializada_retorna_503():
+    with patch("api.services.gold_service.Repository.load", return_value=None):
+        resp = client.get("/gold/violencia_contra_mulher_gold/dados")
+
+    assert resp.status_code == 503
+
+
+def test_dados_tabela_sucesso_com_paginacao():
+    df = pd.DataFrame(
+        {
+            "ano": [2020, 2021, 2022],
+            "regiao_administrativa": ["CEILANDIA", "TAGUATINGA", "CEILANDIA"],
+            "crimes_contra_mulher": [10, 20, 15],
+        }
+    )
+    with patch("api.services.gold_service.Repository.load", return_value=df):
+        resp = client.get(
+            "/gold/violencia_contra_mulher_gold/dados",
+            params={"pagina": 1, "tamanho_pagina": 2},
+        )
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total_linhas"] == 3
+    assert body["total_paginas"] == 2
+    assert len(body["registros"]) == 2
+
+
+def test_dados_tabela_tamanho_pagina_invalido_retorna_422():
+    resp = client.get(
+        "/gold/violencia_contra_mulher_gold/dados", params={"tamanho_pagina": 0}
+    )
+
+    assert resp.status_code == 422
+
+
+def test_previsao_dados_insuficientes_retorna_503():
+    with patch(
+        "api.services.forecast_service.Repository.load", return_value=None
+    ):
+        resp = client.get("/previsao/crimes-contra-mulher")
+
+    assert resp.status_code == 503
+
+
+def test_previsao_sucesso():
+    forecast_payload = {
+        "tabela_origem": "violencia_contra_mulher_gold",
+        "coluna_alvo": "crimes_contra_mulher",
+        "horizonte_anos": 3,
+        "gerado_em": "2026-08-12T10:00:00",
+        "cache_ate": "2026-08-12T10:30:00",
+        "metricas_residual": {"mae": 0.1, "rmse": 0.2},
+        "previsao": [
+            {
+                "ano": 2027,
+                "valor_previsto": 100.0,
+                "componente_prophet": 95.0,
+                "residual_log_aplicado": 0.05,
+            }
+        ],
+    }
+    with patch(
+        "api.services.forecast_service.gerar_previsao", return_value=forecast_payload
+    ):
+        resp = client.get("/previsao/crimes-contra-mulher", params={"horizonte_anos": 3})
+
+    assert resp.status_code == 200
+    assert resp.json()["horizonte_anos"] == 3
+    assert len(resp.json()["previsao"]) == 1
+
+
+def test_previsao_horizonte_fora_do_limite_retorna_422():
+    resp = client.get("/previsao/crimes-contra-mulher", params={"horizonte_anos": 99})
+
+    assert resp.status_code == 422
+
+
+def test_previsao_erro_inesperado_retorna_500():
+    with patch(
+        "api.services.forecast_service.gerar_previsao",
+        side_effect=RuntimeError("falha ao treinar"),
+    ):
+        resp = client.get("/previsao/crimes-contra-mulher")
+
+    assert resp.status_code == 500
+
+
+def test_modelos_treinados():
+    payload = {
+        "total": 1,
+        "modelos": [
+            {
+                "arquivo": "xgb_residual_log_teste.pkl",
+                "criado_em": "2026-01-01T00:00:00",
+                "tipo_modelo": "XGBRegressor",
+                "metricas": {"mae": 0.1, "rmse": 0.2},
+                "dataset_info": {"source_table": "violencia_contra_mulher_gold"},
+            }
+        ],
+    }
+    with patch(
+        "api.services.forecast_service.listar_modelos_treinados", return_value=payload
+    ):
+        resp = client.get("/previsao/modelos")
+
+    assert resp.status_code == 200
+    assert resp.json() == payload

@@ -11,6 +11,41 @@ def mock_requests_get():
 
 
 @pytest.fixture
+def mock_session_factory():
+    """
+    Fixture para simular `requests.Session()` usado como context manager em
+    `util.arquivos.download_arquivo` (`with requests.Session() as session: ...`).
+
+    IMPORTANTE: `download_arquivo` NÃO chama `requests.get` diretamente — ele
+    cria uma sessão por tentativa (`with requests.Session() as session:
+    session.get(...)`). Fazer mock de `requests.get` não intercepta nada
+    nesse fluxo (o teste acaba batendo na rede de verdade). Este fixture
+    substitui `requests.Session` por um mock cujo `.get()` (via context
+    manager) retorna a `response` combinada, ou levanta `get_side_effect`
+    se a própria chamada de `.get()` deve falhar.
+
+    Uso:
+        mock_session_cls = mock_session_factory(response=meu_response)
+        with patch("util.arquivos.requests.Session", mock_session_cls):
+            ...
+    """
+
+    def _factory(response=None, get_side_effect=None):
+        mock_session = MagicMock()
+        if get_side_effect is not None:
+            mock_session.get.side_effect = get_side_effect
+        else:
+            mock_session.get.return_value = response
+
+        mock_session_cls = MagicMock()
+        mock_session_cls.return_value.__enter__.return_value = mock_session
+        mock_session_cls.return_value.__exit__.return_value = False
+        return mock_session_cls
+
+    return _factory
+
+
+@pytest.fixture
 def mock_tqdm():
     with patch("tqdm.tqdm") as mock:
         mock.return_value.__enter__.return_value.update = MagicMock()
