@@ -8,7 +8,9 @@ import pytest
 from analysis.data_analyzer import (
     FEATURES,
     calcular_metricas,
+    carregar_modelo,
     executar_pipeline,
+    localizar_ultimo_modelo_bundle,
     prever_futuro,
     preparar_dados,
     save_model_with_metadata,
@@ -71,6 +73,135 @@ def test_save_model_with_metadata_usa_defaults_quando_metadata_incompleto(tmp_pa
     assert salvo["target"] == ""
     assert salvo["dataset_info"] == {}
     assert salvo["extra"] == {}
+
+
+def test_save_model_with_metadata_sem_prophet_salva_no_formato_legado(tmp_path):
+    """Comportamento padrão (sem prophet_model): dump direto do modelo, sem bundle."""
+    model = MagicMock()
+    model_path = str(tmp_path / "xgb_legado.pkl")
+
+    with patch(f"{MODULO}.joblib.dump") as mock_dump:
+        save_model_with_metadata(model, model_path, {})
+
+    mock_dump.assert_called_once_with(model, model_path)
+
+    meta_path = str(tmp_path / "xgb_legado_meta.json")
+    with open(meta_path, encoding="utf-8") as f:
+        salvo = json.load(f)
+
+    assert salvo["artifact_format"] == "legacy"
+
+
+def test_save_model_with_metadata_com_prophet_salva_bundle(tmp_path):
+    """Quando prophet_model é informado, salva um dict {xgb_model, prophet_model}
+    em um único artefato, e marca artifact_format='bundle' nos metadados."""
+    xgb_model = MagicMock(name="xgb")
+    prophet_model = MagicMock(name="prophet")
+    model_path = str(tmp_path / "bundle.pkl")
+
+    with patch(f"{MODULO}.joblib.dump") as mock_dump:
+        save_model_with_metadata(xgb_model, model_path, {}, prophet_model=prophet_model)
+
+    mock_dump.assert_called_once_with(
+        {"xgb_model": xgb_model, "prophet_model": prophet_model}, model_path
+    )
+
+    meta_path = str(tmp_path / "bundle_meta.json")
+    with open(meta_path, encoding="utf-8") as f:
+        salvo = json.load(f)
+
+    assert salvo["artifact_format"] == "bundle"
+    assert "MagicMock" in salvo["model_type"]
+
+
+# ============================================================
+# carregar_modelo
+# ============================================================
+def test_carregar_modelo_bundle_retorna_xgb_e_prophet(tmp_path):
+    import joblib
+
+    xgb_model = {"tipo": "xgb-fake"}
+    prophet_model = {"tipo": "prophet-fake"}
+    model_path = str(tmp_path / "bundle.pkl")
+    joblib.dump({"xgb_model": xgb_model, "prophet_model": prophet_model}, model_path)
+
+    xgb_carregado, prophet_carregado = carregar_modelo(model_path)
+
+    assert xgb_carregado == xgb_model
+    assert prophet_carregado == prophet_model
+
+
+def test_carregar_modelo_legado_retorna_prophet_none(tmp_path):
+    import joblib
+
+    model_path = str(tmp_path / "legado.pkl")
+    joblib.dump({"apenas": "xgb"}, model_path)
+
+    modelo_carregado, prophet_carregado = carregar_modelo(model_path)
+
+    assert modelo_carregado == {"apenas": "xgb"}
+    assert prophet_carregado is None
+
+
+# ============================================================
+# localizar_ultimo_modelo_bundle
+# ============================================================
+def _escrever_meta(tmp_path, nome_pkl, created_at, artifact_format="bundle", criar_pkl=True):
+    if criar_pkl:
+        (tmp_path / nome_pkl).write_bytes(b"conteudo-fake")
+    meta = {
+        "created_at": created_at,
+        "model_file": nome_pkl,
+        "artifact_format": artifact_format,
+        "metrics": {"mae": 0.1, "rmse": 0.2},
+        "extra": {"residual_bounds": {"min": -0.5, "max": 0.5}},
+    }
+    base = nome_pkl.rsplit(".", 1)[0]
+    (tmp_path / f"{base}_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+
+def test_localizar_ultimo_modelo_bundle_escolhe_o_mais_recente(tmp_path):
+    _escrever_meta(tmp_path, "bundle_antigo.pkl", "2026-01-01T00:00:00")
+    _escrever_meta(tmp_path, "bundle_novo.pkl", "2026-06-01T00:00:00")
+
+    model_path, meta = localizar_ultimo_modelo_bundle(str(tmp_path))
+
+    assert model_path == str(tmp_path / "bundle_novo.pkl")
+    assert meta["model_file"] == "bundle_novo.pkl"
+
+
+def test_localizar_ultimo_modelo_bundle_ignora_formato_legado(tmp_path):
+    _escrever_meta(tmp_path, "legado.pkl", "2026-06-01T00:00:00", artifact_format="legacy")
+
+    model_path, meta = localizar_ultimo_modelo_bundle(str(tmp_path))
+
+    assert model_path is None
+    assert meta is None
+
+
+def test_localizar_ultimo_modelo_bundle_ignora_meta_sem_pkl_correspondente(tmp_path):
+    _escrever_meta(tmp_path, "orfao.pkl", "2026-06-01T00:00:00", criar_pkl=False)
+
+    model_path, meta = localizar_ultimo_modelo_bundle(str(tmp_path))
+
+    assert model_path is None
+    assert meta is None
+
+
+def test_localizar_ultimo_modelo_bundle_ignora_json_corrompido(tmp_path):
+    (tmp_path / "corrompido_meta.json").write_text("{ nao é json", encoding="utf-8")
+
+    model_path, meta = localizar_ultimo_modelo_bundle(str(tmp_path))
+
+    assert model_path is None
+    assert meta is None
+
+
+def test_localizar_ultimo_modelo_bundle_diretorio_vazio(tmp_path):
+    model_path, meta = localizar_ultimo_modelo_bundle(str(tmp_path))
+
+    assert model_path is None
+    assert meta is None
 
 
 # ============================================================
@@ -320,13 +451,15 @@ def test_executar_pipeline_orquestra_todas_as_etapas():
     mock_save.assert_called_once()
 
     # o metadata passado para save_model_with_metadata deve refletir o treino
-    _, kwargs_ou_args = mock_save.call_args, None
     args = mock_save.call_args[0]
+    kwargs = mock_save.call_args[1]
     saved_model, saved_path, saved_metadata = args
     assert saved_model is model_fake
     assert saved_metadata["metrics"] == metrics_fake
     assert saved_metadata["dataset_info"]["source_table"] == "violencia_contra_mulher_gold"
     assert saved_metadata["dataset_info"]["target_column"] == "crimes_contra_mulher"
+    # o Prophet correspondente deve ser passado junto, para persistir o bundle
+    assert kwargs["prophet_model"] is prophet_model_fake
 
     assert resultado is forecast_fake
 

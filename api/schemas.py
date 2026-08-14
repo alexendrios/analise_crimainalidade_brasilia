@@ -64,12 +64,30 @@ class PrevisaoResponse(BaseModel):
     cache_ate: Optional[datetime] = None
     metricas_residual: MetricasModelo
     previsao: List[PontoPrevisao]
+    fonte_modelo: Optional[str] = Field(
+        None,
+        description=(
+            "'artefato' quando a previsão foi servida a partir de um bundle "
+            "Prophet+XGBoost já persistido em models/, sem re-treinar; "
+            "'retreino' quando o par foi treinado nesta própria requisição "
+            "(nenhum artefato utilizável ainda, ou retreino explícito via "
+            "POST /previsao/retrain)."
+        ),
+        examples=["artefato"],
+    )
+    modelo_arquivo: Optional[str] = Field(
+        None, description="Nome do arquivo .pkl usado (ou recém-salvo) para esta previsão"
+    )
 
 
 class ModeloTreinadoInfo(BaseModel):
     arquivo: str
     criado_em: Optional[str] = None
     tipo_modelo: Optional[str] = None
+    formato_artefato: Optional[str] = Field(
+        None,
+        description="'bundle' (Prophet+XGBoost juntos, servível sem re-treino) ou 'legacy' (apenas XGBoost)",
+    )
     metricas: Optional[Dict[str, float]] = None
     dataset_info: Optional[Dict[str, Any]] = None
 

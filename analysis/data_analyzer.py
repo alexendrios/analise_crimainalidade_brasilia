@@ -1,6 +1,7 @@
 # =========================================================
 # IMPORTS
 # =========================================================
+import glob
 import json
 import os
 from datetime import datetime
@@ -31,25 +32,49 @@ FEATURES = [
     "diff_1",
 ]
 
+MODELS_DIR = "models"
 MODEL_NAME = f"xgb_residual_log_{datetime.now().strftime('%Y%m%d_%H%M')}"
-MODEL_PATH = f"models/{MODEL_NAME}.pkl"
+MODEL_PATH = f"{MODELS_DIR}/{MODEL_NAME}.pkl"
+
+# Chaves usadas dentro do artefato .pkl quando ele é um "bundle"
+# (Prophet + XGBoost) salvo em conjunto, em vez do formato legado que
+# guardava apenas o regressor XGBoost.
+_CHAVE_XGB = "xgb_model"
+_CHAVE_PROPHET = "prophet_model"
 
 
 # =========================================================
 # GERENCIAMENTO DE ARTEFATOS & METADADOS
 # =========================================================
-def save_model_with_metadata(model, model_path: str, metadata: dict) -> None:
+def save_model_with_metadata(
+    model, model_path: str, metadata: dict, prophet_model=None
+) -> None:
     """
     Salva o modelo serializado (.pkl) e gera um arquivo de metadados padronizado (*_meta.json).
 
-    :param model: Objeto do modelo treinado (Prophet, XGBoost, etc.).
+    :param model: Objeto do modelo treinado (tipicamente o XGBRegressor do resíduo).
     :param model_path: Caminho completo de saída para o arquivo .pkl.
     :param metadata: Dicionário contendo informações específicas do modelo/treinamento.
+    :param prophet_model: Opcional. Quando informado, o modelo Prophet correspondente é
+        salvo *junto* com `model` em um único artefato "bundle" (dict serializado via
+        joblib), permitindo que a previsão híbrida seja servida a partir do artefato
+        salvo em disco, sem re-treinar. Quando omitido (padrão), o comportamento é o
+        legado: apenas `model` é serializado diretamente (compatível com artefatos
+        antigos gerados antes desta funcionalidade).
     """
     os.makedirs(os.path.dirname(model_path), exist_ok=True)
 
-    # 1. Salvar o artefato .pkl do modelo
-    joblib.dump(model, model_path)
+    if prophet_model is not None:
+        # Formato "bundle": Prophet + XGBoost persistidos juntos no mesmo .pkl,
+        # para que a previsão híbrida completa possa ser reconstruída sem re-treino.
+        joblib.dump({_CHAVE_XGB: model, _CHAVE_PROPHET: prophet_model}, model_path)
+        model_type = f"bundle({type(model).__name__}+{type(prophet_model).__name__})"
+        artifact_format = "bundle"
+    else:
+        # Formato legado: apenas o objeto `model` (tipicamente o XGBoost do resíduo).
+        joblib.dump(model, model_path)
+        model_type = type(model).__name__
+        artifact_format = "legacy"
 
     # 2. Estrutura padronizada do arquivo de metadados
     base_path, _ = os.path.splitext(model_path)
@@ -58,7 +83,8 @@ def save_model_with_metadata(model, model_path: str, metadata: dict) -> None:
     full_metadata = {
         "created_at": datetime.now().isoformat(),
         "model_file": os.path.basename(model_path),
-        "model_type": type(model).__name__,
+        "model_type": model_type,
+        "artifact_format": artifact_format,
         "metrics": metadata.get("metrics", {}),
         "hyperparameters": metadata.get("hyperparameters", {}),
         "features": metadata.get("features", []),
@@ -71,8 +97,73 @@ def save_model_with_metadata(model, model_path: str, metadata: dict) -> None:
     with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(full_metadata, f, indent=4, ensure_ascii=False)
 
-    logger.info(f"✅ Modelo salvo em: {model_path}")
+    logger.info(f"✅ Modelo salvo em: {model_path} (formato: {artifact_format})")
     logger.info(f"📄 Metadados salvos em: {meta_path}")
+
+
+def carregar_modelo(model_path: str):
+    """
+    Carrega um artefato .pkl salvo por `save_model_with_metadata`.
+
+    Reconhece automaticamente os dois formatos possíveis:
+    - "bundle": dict com `xgb_model` e `prophet_model` -> retorna ambos.
+    - "legacy": apenas o objeto do modelo (XGBoost) -> retorna `(model, None)`.
+
+    :return: tupla `(xgb_model, prophet_model)`. `prophet_model` é `None`
+        quando o artefato é do formato legado (sem Prophet persistido).
+    """
+    artefato = joblib.load(model_path)
+
+    if isinstance(artefato, dict) and _CHAVE_XGB in artefato:
+        return artefato[_CHAVE_XGB], artefato.get(_CHAVE_PROPHET)
+
+    return artefato, None
+
+
+def localizar_ultimo_modelo_bundle(models_dir: str = MODELS_DIR):
+    """
+    Procura, em `models_dir`, o artefato mais recente salvo no formato "bundle"
+    (Prophet + XGBoost persistidos juntos), com base no campo `created_at` do
+    respectivo `*_meta.json`.
+
+    Artefatos "legacy" (apenas XGBoost, sem Prophet) são ignorados aqui, pois
+    não permitem reconstruir a previsão híbrida sem re-treinar o Prophet.
+
+    :return: tupla `(model_path, meta_dict)` do bundle mais recente, ou
+        `(None, None)` se nenhum artefato nesse formato existir (ex.: apenas
+        modelos legados, ou diretório vazio/inexistente).
+    """
+    padrao = os.path.join(models_dir, "*_meta.json")
+    candidatos = []
+
+    for meta_path in glob.glob(padrao):
+        try:
+            with open(meta_path, "r", encoding="utf-8") as f:
+                meta = json.load(f)
+        except (OSError, json.JSONDecodeError):
+            logger.warning(f"⚠️ Não foi possível ler metadados em: {meta_path}")
+            continue
+
+        if meta.get("artifact_format") != "bundle":
+            continue
+
+        model_file = meta.get("model_file")
+        if not model_file:
+            continue
+
+        model_path = os.path.join(models_dir, model_file)
+        if not os.path.exists(model_path):
+            continue
+
+        candidatos.append((meta.get("created_at", ""), model_path, meta))
+
+    if not candidatos:
+        return None, None
+
+    candidatos.sort(key=lambda item: item[0], reverse=True)
+    _, model_path, meta = candidatos[0]
+
+    return model_path, meta
 
 
 # =========================================================
@@ -299,8 +390,9 @@ def executar_pipeline():
         },
     }
 
-    # Salva o modelo .pkl junto do arquivo _meta.json
-    save_model_with_metadata(model, MODEL_PATH, metadata)
+    # Salva o bundle Prophet+XGBoost (.pkl) junto do arquivo _meta.json,
+    # permitindo que a API sirva previsões a partir do artefato sem re-treinar.
+    save_model_with_metadata(model, MODEL_PATH, metadata, prophet_model=prophet_model)
 
     logger.info("🏁 Pipeline finalizado")
     logger.info({"metrics_residual": metrics, "forecast": forecast})

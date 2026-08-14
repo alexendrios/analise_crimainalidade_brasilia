@@ -181,6 +181,67 @@ def test_previsao_erro_inesperado_retorna_500():
     assert resp.status_code == 500
 
 
+def test_retreinar_previsao_sucesso_chama_gerar_previsao_com_flags_corretas():
+    forecast_payload = {
+        "tabela_origem": "violencia_contra_mulher_gold",
+        "coluna_alvo": "crimes_contra_mulher",
+        "horizonte_anos": 5,
+        "gerado_em": "2026-08-14T10:00:00",
+        "cache_ate": "2026-08-14T10:30:00",
+        "metricas_residual": {"mae": 0.1, "rmse": 0.2},
+        "previsao": [
+            {
+                "ano": 2027,
+                "valor_previsto": 100.0,
+                "componente_prophet": 95.0,
+                "residual_log_aplicado": 0.05,
+            }
+        ],
+        "fonte_modelo": "retreino",
+        "modelo_arquivo": "xgb_residual_log_20260814_100000.pkl",
+    }
+    with patch(
+        "api.services.forecast_service.gerar_previsao", return_value=forecast_payload
+    ) as mock_gerar:
+        resp = client.post("/previsao/retrain", params={"horizonte_anos": 4})
+
+    assert resp.status_code == 200
+    assert resp.json()["fonte_modelo"] == "retreino"
+    assert resp.json()["modelo_arquivo"] == "xgb_residual_log_20260814_100000.pkl"
+
+    mock_gerar.assert_called_once_with(
+        horizonte_anos=4,
+        usar_cache=False,
+        forcar_retreino=True,
+        persistir_modelo=True,
+    )
+
+
+def test_retreinar_previsao_dados_insuficientes_retorna_503():
+    with patch(
+        "api.services.forecast_service.Repository.load", return_value=None
+    ):
+        resp = client.post("/previsao/retrain")
+
+    assert resp.status_code == 503
+
+
+def test_retreinar_previsao_erro_inesperado_retorna_500():
+    with patch(
+        "api.services.forecast_service.gerar_previsao",
+        side_effect=RuntimeError("falha ao treinar"),
+    ):
+        resp = client.post("/previsao/retrain")
+
+    assert resp.status_code == 500
+
+
+def test_retreinar_previsao_horizonte_fora_do_limite_retorna_422():
+    resp = client.post("/previsao/retrain", params={"horizonte_anos": 99})
+
+    assert resp.status_code == 422
+
+
 def test_modelos_treinados():
     payload = {
         "total": 1,
@@ -189,6 +250,7 @@ def test_modelos_treinados():
                 "arquivo": "xgb_residual_log_teste.pkl",
                 "criado_em": "2026-01-01T00:00:00",
                 "tipo_modelo": "XGBRegressor",
+                "formato_artefato": "bundle",
                 "metricas": {"mae": 0.1, "rmse": 0.2},
                 "dataset_info": {"source_table": "violencia_contra_mulher_gold"},
             }

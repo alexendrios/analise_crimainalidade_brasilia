@@ -1,8 +1,10 @@
 # Projeto Criminalidade Brasília - DF
 
-> **Nota de atualização:** esta documentação foi revisada para refletir o que está **efetivamente implementado no código** na data desta análise. A versão anterior descrevia uma arquitetura geoespacial com PostGIS, malha hexagonal, dashboard Streamlit e API FastAPI — nenhum desses componentes existe hoje no repositório. Eles foram movidos para a seção [Roadmap](#-roadmap--visão-futura), mantidos apenas como direção futura possível.
+> **Nota de atualização:** esta documentação foi revisada para refletir o que está **efetivamente implementado no código** na data desta análise. A versão anterior descrevia uma arquitetura geoespacial com PostGIS, malha hexagonal, dashboard Streamlit e API FastAPI — nenhum desses componentes existia naquele momento no repositório. Eles foram movidos para a seção [Roadmap](#-roadmap--visão-futura) conforme ainda pendentes, ou promovidos de volta ao corpo do documento à medida que foram implementados (caso da API, ver abaixo).
 >
-> **Revisão mais recente:** API de consumo (FastAPI) implementada, suíte de testes de `download_arquivo` corrigida (mock de `requests.Session` em vez de `requests.get`, suíte 19min→16s) e padronização de RA consolidada num mapeamento mestre único. Números atualizados: **343 testes, 0 falhas, 100% de cobertura** em `src`, `util` e `database` (limiar mínimo 95%). Três itens antes listados como pendentes em "Pontos de Atenção" já estavam resolvidos no código mas com documentação desatualizada — corrigido nesta revisão: `requirements.txt` curado, metadados `_meta.json` padronizados para todos os modelos, e `correcoes.patch` já removido do repositório. Detalhes em [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto).
+> **Revisão mais recente (verificada rodando a suíte de fato, commit `38a3d92`):** a cobertura de testes configurada em `pytest.ini` foi ampliada — hoje mede `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (não mais apenas `src`, `util` e `database`); só `validation/` segue sem cobertura própria. Números reais desta rodada: **391 testes coletados, 388 passando, 3 falhando, 99,18% de cobertura** (limiar mínimo 95%, atingido). As 3 falhas são um bug real e reprodutível, não um problema de ambiente — ver [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto). Também confirmado nesta revisão: `.env` **não está mais rastreado pelo Git** (item antes pendente, já resolvido), e todos os modelos `xgb_residual_log_*.pkl` já possuem `_meta.json` completo (a documentação anterior afirmava o contrário).
+>
+> **Implementação de item do roadmap — persistência do Prophet:** o item "persistir o modelo Prophet junto ao XGBoost em `models/`" foi implementado. `save_model_with_metadata` agora aceita um `prophet_model` opcional e salva o par como um único artefato "bundle"; `GET /previsao/crimes-contra-mulher` passa a servir por padrão a partir do bundle mais recente em disco (sem re-treinar), com fallback automático para treino quando não há artefato utilizável; um novo endpoint `POST /previsao/retrain` força o re-treino explícito. Detalhes em [Camada de Consumo (API)](#-camada-de-consumo-api--api). 16 novos testes adicionados (391 → 407 testes coletados), cobertura de `api/services/forecast_service.py` em 100%.
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -112,7 +114,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 343 testes automatizados, 0 falhas, **100% de cobertura** em `src`, `util` e `database`, limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 407 testes coletados, 404 passam / 3 falham (bug conhecido, ver Qualidade e Testes), **99% de cobertura** em `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util`, limiar mínimo de 95% (`--cov-fail-under=95`) |
 | **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
 ### 🧩 Interações Principais (fluxo real)
@@ -138,7 +140,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | `config/` | Configuração de datasets (`datasets_config.py`) e paths |
 | `models/` | Modelos treinados (`.pkl`) e metadados (`_meta.json`) de cada execução |
 | `data/` | Camadas `bronze/`, `silver/`, `gold/` do lakehouse local (gerada em runtime; ignorada pelo Git, ver `.gitignore`) |
-| `tests/` | Suíte de testes (`arquivos`, `core`, `dados`, `database`, `pipeline`, `rotas`, `scrapings`, `setup`, `util`) |
+| `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `domain`, `ingestion`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`) |
 | `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
 | `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
 
@@ -163,13 +165,17 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 - **Abordagem híbrida:** Prophet modela a tendência/sazonalidade anual; um `XGBRegressor` aprende o resíduo em escala logarítmica entre o valor real e o previsto pelo Prophet.
 - **Pós-processamento da previsão:** clipping dinâmico do resíduo pelos percentis 5%/95%, decaimento de 15% por ano projetado (mínimo de 40% do efeito) e suavização exponencial simples entre anos consecutivos.
 - **Horizonte:** 5 anos à frente, com atualização recursiva das features (lags, médias móveis) a cada passo.
-- **Persistência:** cada execução gera um novo arquivo `models/xgb_residual_log_<timestamp>.pkl`; **não há atualmente um `_meta.json` salvo para os modelos residuais em log** (apenas os modelos `xgb_*` mais antigos possuem metadados de features/métricas — ponto de atenção para padronizar).
+- **Persistência:** cada execução do pipeline batch (`executar_pipeline`) gera um novo arquivo `models/xgb_residual_log_<timestamp>.pkl`, salvo como **bundle** — um único artefato contendo tanto o `XGBRegressor` do resíduo quanto o `Prophet` correspondente (dict `{xgb_model, prophet_model}` serializado via `joblib`) — acompanhado do seu `_meta.json` (métricas `mae`/`rmse`, hiperparâmetros, features, `dataset_info` com a tabela/período de origem, `artifact_format: "bundle"` e `extra` com os limites de clipping do resíduo e o horizonte de previsão). Isso permite que a API reconstrua a previsão híbrida completa a partir do artefato salvo, sem re-treinar (ver seção da API). Os três modelos gerados antes desta funcionalidade continuam em disco no formato antigo (`artifact_format: "legacy"`, apenas o XGBoost) e seguem legíveis via `carregar_modelo`, mas não são usados para servir previsão por faltar o Prophet.
 
 ## ✅ Qualidade e Testes
 
-- **343 testes** automatizados (`pytest`), **0 falhas**, **cobertura de 100%** sobre `src`, `util` e `database` (limiar mínimo configurado: 95%, `--cov-fail-under=95`).
-- Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `coverage_report/` (HTML).
-- Suíte organizada por domínio: `tests/arquivos`, `tests/core`, `tests/dados`, `tests/database`, `tests/pipeline`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
+- **407 testes** coletados (`pytest`), dos quais **404 passam** e **3 falham** por um bug real (ver tabela abaixo) — **99% de cobertura** sobre `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). `validation/` é o único pacote de produção ainda fora do escopo de cobertura.
+- Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `test_report/coverage` (HTML).
+- Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
+
+### 🐛 Falha ativa encontrada nesta revisão
+
+As 3 falhas em `tests/database/test_connection.py` (`test_obter_engine_sucesso`, `test_obter_engine_erro_sqlalchemy`, `test_logs_de_criacao_engine`) não são falhas de ambiente — são um **bug reprodutível de nome de variável**: a fixture `env_valido` (linha 9 do arquivo) define a variável de ambiente como `POSTGRES_USERNAME`, mas `database/connection.py::obter_engine` lê `POSTGRES_USER` (sem sufixo). Como a variável esperada nunca é encontrada, `obter_engine()` sempre levanta `EnvironmentError`/`OSError`, mesmo quando a fixture "válida" está em uso. Correção: alinhar o nome em um dos dois lados (recomenda-se ajustar a fixture de teste para `POSTGRES_USER`, já que é esse o nome usado também no `.env`/`docker-compose.yaml` reais).
 
 ### 🔧 Histórico da retomada de cobertura (desta rodada de QA)
 
@@ -240,10 +246,13 @@ api/
 | GET | `/gold/tabelas` | Catálogo de tabelas gold conhecidas (e se já existem no banco) |
 | GET | `/gold/{tabela}/resumo` | Estatísticas descritivas (linhas, colunas, nulos) |
 | GET | `/gold/{tabela}/dados` | Registros paginados, com filtros `ano_min`, `ano_max`, `regiao_administrativa` |
-| GET | `/previsao/crimes-contra-mulher` | Previsão híbrida Prophet+XGBoost (`horizonte_anos`, `usar_cache`, `persistir_modelo`) |
-| GET | `/previsao/modelos` | Lista os modelos já persistidos em `models/*_meta.json` |
+| GET | `/previsao/crimes-contra-mulher` | Previsão híbrida Prophet+XGBoost, servida por padrão a partir do artefato persistido (`horizonte_anos`, `usar_cache`, `persistir_modelo`) |
+| POST | `/previsao/retrain` | Força um novo treino do par Prophet+XGBoost e persiste o bundle resultante (`horizonte_anos`) |
+| GET | `/previsao/modelos` | Lista os modelos já persistidos em `models/*_meta.json` (inclui o campo `formato_artefato`: `bundle` ou `legacy`) |
 
-**Decisão de design importante:** os artefatos em `models/*.pkl` guardam apenas o regressor XGBoost do resíduo — o `Prophet` correspondente não é serializado (ponto de atenção já registrado abaixo). Por isso, `GET /previsao/crimes-contra-mulher` re-treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente, com um cache em memória de 30 min (`usar_cache=false` força retreino; `persistir_modelo=true` salva o artefato como o pipeline batch faria). Isso mantém a API sempre consistente com os dados mais recentes, ao custo de uma primeira chamada mais lenta — um passo natural de evolução seria persistir também o Prophet e servir por padrão a partir do artefato, com um endpoint separado de retrain explícito.
+**Persistência do par Prophet+XGBoost (bundle):** `analysis/data_analyzer.py::save_model_with_metadata` aceita um `prophet_model` opcional — quando informado, salva `{xgb_model, prophet_model}` como um único artefato `.pkl` (formato `"bundle"`, registrado em `artifact_format` no `_meta.json`, junto dos `residual_bounds` necessários para prever sem re-treinar). O pipeline batch (`analysis/data_analyzer.py::executar_pipeline`) já salva nesse formato. Artefatos antigos, com apenas o XGBoost (`artifact_format: "legacy"`), continuam podendo ser lidos por `carregar_modelo`, mas não são usados para servir previsão (falta o Prophet).
+
+**Estratégia de serving da API:** `GET /previsao/crimes-contra-mulher` tenta primeiro `analysis.data_analyzer.localizar_ultimo_modelo_bundle` para achar o bundle mais recente em `models/` e servir a previsão diretamente a partir dele (`fonte_modelo: "artefato"` na resposta, sem treinar nada). Se ainda não existir nenhum bundle utilizável (primeira execução, artefato corrompido ou metadados incompletos), a API treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente (`fonte_modelo: "retreino"`); se `persistir_modelo=true`, esse novo treino já é salvo como bundle, disponível para a próxima chamada. Para forçar um novo treino mesmo com um bundle já disponível (ex.: dados gold atualizados), use `POST /previsao/retrain`, que ignora o cache e qualquer artefato existente, treina do zero e sempre persiste o resultado. Um cache em memória de 30 min (`usar_cache`) evita repetir trabalho — seja servindo do artefato, seja re-treinando — a cada requisição idêntica.
 
 Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade).
 
@@ -255,7 +264,9 @@ Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`,
 - **`src/main.py` executa as três etapas:** coleta/transformação, tabela gold e modelagem rodam em sequência por padrão — todo o fluxo tem cobertura de teste (incluindo o bloco `if __name__ == "__main__":`, coberto via `runpy`).
 - ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
 - ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
-- **Cobertura de teste não cobre todo o código:** `pytest.ini` mede cobertura apenas de `src`, `util` e `database` (`--cov=src --cov=util --cov=database`). Os pacotes `domain/`, `processing/`, `ingestion/`, `validation/` e a nova `api/` não entram nesse cálculo — `api/` tem sua própria suíde dedicada com 99% de cobertura medida à parte (ver seção da API), mas `domain/`/`processing/`/`ingestion/`/`validation/` não tinham nenhum teste até esta revisão, que adicionou uma cobertura inicial de regressão em `tests/domain/` para os dois serviços afetados pelo item de padronização de RA acima. Ampliar `--cov` para esses pacotes (e sua cobertura de teste) é candidato a um próximo passo.
+- ✅ **`.env` não é mais rastreado pelo Git:** confirmado nesta revisão (`git ls-tree` não lista o arquivo) — o item antes pendente de `git rm --cached .env` já foi resolvido. Ainda assim, se alguma credencial real chegou a ser commitada antes dessa correção, ela permanece no histórico do repositório e deveria ter sido rotacionada por precaução.
+- ✅ **Cobertura de teste ampliada:** `pytest.ini` agora mede `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,18%**. Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
+- ⚠️ **Bug ativo — variável de ambiente divergente em teste:** ver seção "🐛 Falha ativa encontrada nesta revisão" em Qualidade e Testes. `POSTGRES_USERNAME` (fixture de teste) vs. `POSTGRES_USER` (código de produção) causa 3 falhas reprodutíveis em `tests/database/test_connection.py`.
 
 ## 🗺️ Roadmap / Visão Futura
 
@@ -278,6 +289,6 @@ Os itens abaixo **não existem no código atual** — são direções possíveis
 
 ### Camada de consumo
 - ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.
+- ✅ **Prophet persistido junto ao XGBoost** — `GET /previsao/crimes-contra-mulher` já serve por padrão a partir do artefato ("bundle") salvo em `models/`, com `POST /previsao/retrain` como endpoint de retrain explícito. Ver seção "🌐 Camada de Consumo (API)" acima.
 - Dashboard interativo (Streamlit/Plotly) consumindo essa API, para mapas, séries temporais e aba de previsões.
 - Autenticação/API key e rate limiting, caso a API passe a ser exposta publicamente.
-- Persistir o modelo Prophet junto ao XGBoost em `models/`, permitindo que `/previsao` sirva a partir do artefato salvo por padrão, com endpoint de retrain explícito separado.
