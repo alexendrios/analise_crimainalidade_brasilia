@@ -262,13 +262,15 @@ Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`,
 
 ## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
 
-Um painel web em **Streamlit** consome a API e desenha os gráficos com **Plotly**: séries temporais por Região Administrativa, mapa de calor RA × ano, ranking por RA, previsão Prophet+XGBoost (com métricas e arquivo do modelo) e exploração das tabelas gold. O painel não executa análise própria — apenas reaproveita os endpoints da API.
+Um painel web em **Streamlit** consome a API e desenha os gráficos com **Plotly**: séries temporais, mapa de calor RA × ano, ranking por RA, previsão Prophet+XGBoost (com métricas e arquivo do modelo) e exploração das tabelas gold. O painel não executa análise própria — apenas reaproveita os endpoints da API.
+
+A aba **Séries Temporais** mostra o **total consolidado por ano** (soma de todas as RAs) como linha principal, com **RAs selecionáveis** via multiselect para comparação e **média móvel** configurável (janela 1 = desativada). Tanto o seletor de tabelas quanto o de colunas usam **rótulos legíveis em pt-BR** (ex.: `identificacao_crimes_contra_mulher_gold` → "Identificação crimes contra mulher"; `idade_vitima` → "Idade da vítima"), aplicados também aos títulos e eixos dos gráficos.
 
 ```
 dashboard/
 ├── app.py              # interface Streamlit (abas: Séries Temporais, Mapa de Calor, Previsões, Tabelas)
 ├── api_client.py       # cliente HTTP para a API (requests)
-└── visualizacoes.py    # transformações pandas + figuras Plotly (funções puras, testáveis)
+└── visualizacoes.py    # transformações pandas + figuras Plotly + rótulos pt-BR (funções puras, testáveis)
 ```
 
 **Execução:**
@@ -284,7 +286,7 @@ streamlit run dashboard/app.py
 
 A URL da API pode ser alterada na sidebar do próprio painel (padrão: `http://localhost:8000`).
 
-Testes: `tests/dashboard/` (47 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
+Testes: `tests/dashboard/` (56 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
 
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
@@ -295,7 +297,7 @@ Testes: `tests/dashboard/` (47 testes) — o app é exercitado via `AppTest` (`s
 - ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
 - ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
 - ✅ **`.env` não é mais rastreado pelo Git:** confirmado nesta revisão (`git ls-tree` não lista o arquivo) — o item antes pendente de `git rm --cached .env` já foi resolvido. Ainda assim, se alguma credencial real chegou a ser commitada antes dessa correção, ela permanece no histórico do repositório e deveria ter sido rotacionada por precaução.
-- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,40%** (457 testes). Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
+- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,37%** (466 testes). Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
 - ⚠️ **Bug ativo — variável de ambiente divergente em teste:** ver seção "🐛 Falha ativa encontrada nesta revisão" em Qualidade e Testes. `POSTGRES_USERNAME` (fixture de teste) vs. `POSTGRES_USER` (código de produção) causa 3 falhas reprodutíveis em `tests/database/test_connection.py`.
 
 ## 🗺️ Roadmap / Visão Futura
