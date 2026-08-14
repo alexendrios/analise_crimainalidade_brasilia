@@ -71,6 +71,10 @@ def test_gerar_previsao_sucesso_e_cache():
             "api.services.forecast_service.preparar_dados", return_value=df_preparado
         ),
         patch(
+            "api.services.forecast_service.localizar_ultimo_modelo_bundle",
+            return_value=(None, None),
+        ),
+        patch(
             "api.services.forecast_service.treinar_residual",
             return_value=(modelo_fake, prophet_fake, metrics_fake, -0.5, 0.5, {}),
         ),
@@ -118,6 +122,10 @@ def test_gerar_previsao_cache_expirado_forca_retreino():
             "api.services.forecast_service.preparar_dados", return_value=df_preparado
         ),
         patch(
+            "api.services.forecast_service.localizar_ultimo_modelo_bundle",
+            return_value=(None, None),
+        ),
+        patch(
             "api.services.forecast_service.treinar_residual",
             return_value=(MagicMock(), MagicMock(), {"mae": 0.1, "rmse": 0.1}, -0.5, 0.5, {}),
         ),
@@ -149,6 +157,10 @@ def test_gerar_previsao_usar_cache_false_forca_retreino():
         patch("api.services.forecast_service.Repository.load", return_value=df),
         patch(
             "api.services.forecast_service.preparar_dados", return_value=df_preparado
+        ),
+        patch(
+            "api.services.forecast_service.localizar_ultimo_modelo_bundle",
+            return_value=(None, None),
         ),
         patch(
             "api.services.forecast_service.treinar_residual",
@@ -184,6 +196,10 @@ def test_gerar_previsao_persistir_modelo_chama_save():
         patch("api.services.forecast_service.Repository.load", return_value=df),
         patch(
             "api.services.forecast_service.preparar_dados", return_value=df_preparado
+        ),
+        patch(
+            "api.services.forecast_service.localizar_ultimo_modelo_bundle",
+            return_value=(None, None),
         ),
         patch(
             "api.services.forecast_service.treinar_residual",

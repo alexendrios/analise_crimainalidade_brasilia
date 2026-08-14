@@ -13,6 +13,8 @@ from dashboard.visualizacoes import (
     modelos_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
+    rotulo_coluna,
+    rotulo_tabela,
 )
 
 
@@ -55,21 +57,63 @@ def test_coluna_ano_ausente():
     assert coluna_ano_disponivel(pd.DataFrame({"valor": [1]})) is None
 
 
-def test_figura_serie_temporal_agregada_por_ra():
-    fig = figura_serie_temporal(_df_base(), "crimes_contra_mulher", agrupar_regiao=True)
+def test_rotulo_coluna_mapeia_idade_da_vitima_e_autor():
+    assert rotulo_coluna("idade_vitima") == "Idade da vítima"
+    assert rotulo_coluna("idade_autor") == "Idade do autor (suspeito)"
+
+
+def test_rotulo_coluna_fallback_legivel():
+    assert rotulo_coluna("crimes_contra_mulher") == "Crimes contra a mulher"
+    assert rotulo_coluna("coluna_desconhecida") == "Coluna desconhecida"
+
+
+def test_rotulo_tabela_mapeia_nome_gold():
+    assert rotulo_tabela("identificacao_crimes_contra_mulher_gold") == "Identificação crimes contra mulher"
+    assert rotulo_tabela("violencia_contra_mulher_gold") == "Violência contra mulher"
+
+
+def test_rotulo_tabela_fallback_legivel():
+    assert rotulo_tabela("tabela_desconhecida_gold") == "Tabela Desconhecida"
+
+
+def test_figura_serie_temporal_total_linha_unica():
+    fig = figura_serie_temporal(_df_base(), "crimes_contra_mulher")
     assert isinstance(fig, go.Figure)
-    assert len(fig.data) == 2  # uma linha por RA
+    assert len(fig.data) == 1  # apenas a linha do total consolidado
+    assert fig.data[0].name == "Total"
 
 
-def test_figura_serie_temporal_sem_ra_linha_unica():
-    df = _df_base().drop(columns=["regiao_administrativa"])
-    fig = figura_serie_temporal(df, "crimes_contra_mulher", agrupar_regiao=True)
-    assert len(fig.data) == 1
+def test_figura_serie_temporal_compara_ras_selecionadas():
+    fig = figura_serie_temporal(_df_base(), "crimes_contra_mulher", ras=["Taguatinga"])
+    nomes = [t.name for t in fig.data]
+    assert "Total" in nomes
+    assert "Taguatinga" in nomes
+    assert "Ceilândia" not in nomes
 
 
 def test_figura_serie_temporal_sem_ano_levanta_erro():
     with pytest.raises(SemDadosParaGraficoError, match="coluna de ano"):
         figura_serie_temporal(pd.DataFrame({"valor": [1]}), "valor")
+
+
+def test_figura_serie_temporal_media_movel_dobra_traces():
+    fig = figura_serie_temporal(
+        _df_base(), "crimes_contra_mulher", ras=["Taguatinga", "Ceilândia"], janela_media_movel=3
+    )
+    assert len(fig.data) == 6  # total + 2 RAs, cada uma com sua média móvel
+    nomes = [t.name for t in fig.data]
+    assert any("média móvel" in nome for nome in nomes)
+
+
+def test_figura_serie_temporal_media_movel_janela_um_nao_adiciona():
+    fig = figura_serie_temporal(_df_base(), "crimes_contra_mulher", janela_media_movel=1)
+    assert len(fig.data) == 1
+
+
+def test_figura_serie_temporal_media_movel_valor_correto():
+    fig = figura_serie_temporal(_df_base(), "crimes_contra_mulher", janela_media_movel=2)
+    trace_media = fig.data[1]
+    assert list(trace_media.y) == [30.0, 35.0]  # média móvel de [30, 40]
 
 
 def test_figura_heatmap_ra_ano_generica():

@@ -15,6 +15,47 @@ import plotly.graph_objects as go
 COLUNA_ANO_PREFERIDA = "ano"
 COLUNA_REGIAO = "regiao_administrativa"
 
+ROTULOS_COLUNAS = {
+    "ano": "Ano",
+    "regiao_administrativa": "Região administrativa",
+    "crimes_contra_mulher": "Crimes contra a mulher",
+    "casos_feminicidios": "Casos de feminicídio",
+    "idade_vitima": "Idade da vítima",
+    "idade_autor": "Idade do autor (suspeito)",
+    "meio_utilizado": "Meio utilizado",
+    "local": "Local",
+    "motivacao": "Motivação",
+    "data_do_crime": "Data do crime",
+}
+
+
+def rotulo_coluna(coluna: str) -> str:
+    """Rótulo amigável (pt-BR) para exibir no dashboard, em vez do nome cru."""
+    if coluna in ROTULOS_COLUNAS:
+        return ROTULOS_COLUNAS[coluna]
+    return coluna.replace("_", " ").capitalize()
+
+
+ROTULOS_TABELAS = {
+    "violencia_contra_mulher_gold": "Violência contra mulher",
+    "identificacao_crimes_contra_mulher_gold": "Identificação crimes contra mulher",
+    "violencia_idosos_gold": "Violência contra idosos",
+    "violencia_idosos_ocorrencias_gold": "Violência contra idosos — ocorrências",
+    "violencia_idosos_mensais_gold": "Violência contra idosos — série mensal",
+    "violencia_idosos_sexo_gold": "Violência contra idosos — por sexo",
+    "crimes_roubo_furto_gold": "Crimes patrimoniais (roubo/furto)",
+    "crimes_letais_gold": "Crimes letais",
+    "crimes_discriminatorios_gold": "Crimes discriminatórios",
+    "desaparecidos_idade_sexo_gold": "Desaparecidos — por idade e sexo",
+    "desaparecidos_localizados_gold": "Desaparecidos — localizados",
+    "desaparecidos_regiao_gold": "Desaparecidos — por RA",
+}
+
+
+def rotulo_tabela(tabela: str) -> str:
+    """Rótulo amigável (pt-BR) de uma tabela gold, em vez do nome cru."""
+    return ROTULOS_TABELAS.get(tabela, tabela.replace("_", " ").replace(" gold", "").title())
+
 
 class SemDadosParaGraficoError(ValueError):
     """Levantada quando os dados não suportam o gráfico solicitado."""
@@ -40,63 +81,60 @@ def coluna_ano_disponivel(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
-def _agregar_por_ano(
-    df: pd.DataFrame, coluna_valor: str, coluna_ano: Optional[str], agrupar_regiao: bool
-) -> pd.DataFrame:
-    chaves = [coluna_ano] if coluna_ano else []
-    if agrupar_regiao and COLUNA_REGIAO in df.columns:
-        chaves.append(COLUNA_REGIAO)
-    if not chaves:
+def figura_serie_temporal(
+    df: pd.DataFrame,
+    coluna_valor: str,
+    ras: Optional[List[str]] = None,
+    janela_media_movel: int = 0,
+) -> go.Figure:
+    """
+    Gráfico de linha da evolução de `coluna_valor` ao longo dos anos.
+
+    Por padrão, desenha o total consolidado (soma de todas as RAs) por
+    ano. Quando `ras` é informado, uma linha é sobreposta para cada RA
+    selecionada. Se `janela_media_movel > 1`, uma linha suavizada com a
+    média móvel da janela é sobreposta a cada série.
+    """
+    coluna_ano = coluna_ano_disponivel(df)
+    if coluna_ano is None:
         raise SemDadosParaGraficoError(
             "Não há coluna de ano disponível para construir a série temporal."
         )
 
-    agrupado = (
-        df.groupby(chaves, as_index=False)[coluna_valor].sum().sort_values(chaves)
-    )
-    return agrupado
+    fig = go.Figure()
 
-
-def figura_serie_temporal(
-    df: pd.DataFrame,
-    coluna_valor: str,
-    agrupar_regiao: bool = True,
-) -> go.Figure:
-    """
-    Gráfico de linha da evolução de `coluna_valor` ao longo dos anos.
-    Quando `agrupar_regiao=True` e o DataFrame tem a coluna
-    `regiao_administrativa`, uma linha é desenhada por RA; caso
-    contrário, uma única linha com o total consolidado.
-    """
-    coluna_ano = coluna_ano_disponivel(df)
-    agregado = _agregar_por_ano(df, coluna_valor, coluna_ano, agrupar_regiao)
-    eixo_x = coluna_ano if coluna_ano else "indice"
-
-    if COLUNA_REGIAO in agregado.columns and agrupar_regiao:
-        fig = go.Figure()
-        for regiao, grupo in agregado.groupby(COLUNA_REGIAO):
+    def _adicionar_traces(x, y, nome: str) -> None:
+        fig.add_trace(go.Scatter(x=x, y=y, mode="lines+markers", name=nome))
+        if janela_media_movel > 1:
+            media = pd.Series(y).rolling(janela_media_movel, min_periods=1).mean()
             fig.add_trace(
                 go.Scatter(
-                    x=grupo[eixo_x],
-                    y=grupo[coluna_valor],
-                    mode="lines+markers",
-                    name=str(regiao),
+                    x=x,
+                    y=media,
+                    mode="lines",
+                    name=f"{nome} — média móvel ({janela_media_movel})",
+                    line=dict(dash="dot"),
                 )
             )
-    else:
-        fig = go.Figure(
-            go.Scatter(
-                x=agregado[eixo_x],
-                y=agregado[coluna_valor],
-                mode="lines+markers",
-                name=coluna_valor,
+
+    total = df.groupby(coluna_ano)[coluna_valor].sum().sort_index()
+    _adicionar_traces(total.index, total.values, "Total")
+
+    if ras and COLUNA_REGIAO in df.columns:
+        for regiao in ras:
+            grupo = (
+                df[df[COLUNA_REGIAO] == regiao]
+                .groupby(coluna_ano)[coluna_valor]
+                .sum()
+                .sort_index()
             )
-        )
+            if not grupo.empty:
+                _adicionar_traces(grupo.index, grupo.values, str(regiao))
 
     fig.update_layout(
-        title=f"Evolução de {coluna_valor} por ano",
-        xaxis_title=str(eixo_x),
-        yaxis_title=coluna_valor,
+        title=f"Evolução de {rotulo_coluna(coluna_valor)} por ano",
+        xaxis_title=str(coluna_ano),
+        yaxis_title=rotulo_coluna(coluna_valor),
         legend_title=COLUNA_REGIAO.capitalize(),
         height=480,
         template="plotly_white",
@@ -130,7 +168,7 @@ def figura_heatmap_ra_ano(df: pd.DataFrame, coluna_valor: str) -> go.Figure:
         )
     )
     fig.update_layout(
-        title=f"Mapa de calor — {coluna_valor} por RA e ano",
+        title=f"Mapa de calor — {rotulo_coluna(coluna_valor)} por RA e ano",
         xaxis_title="Ano",
         yaxis_title="Região Administrativa",
         height=520,
@@ -166,12 +204,12 @@ def figura_ranking_ra(df: pd.DataFrame, coluna_valor: str, ano: Optional[int] = 
             marker_color="firebrick",
         )
     )
-    titulo = f"Ranking de {coluna_valor} por RA"
+    titulo = f"Ranking de {rotulo_coluna(coluna_valor)} por RA"
     if ano is not None:
         titulo += f" — ano {ano}"
     fig.update_layout(
         title=titulo,
-        xaxis_title=coluna_valor,
+        xaxis_title=rotulo_coluna(coluna_valor),
         yaxis_title="Região Administrativa",
         height=520,
         template="plotly_white",

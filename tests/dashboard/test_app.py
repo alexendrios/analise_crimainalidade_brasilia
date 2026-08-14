@@ -109,6 +109,15 @@ def test_app_health_ok_ao_clicar_botao():
     assert any("API OK" in s.value for s in at.sidebar.success)
 
 
+def test_app_serie_com_media_movel_renderiza():
+    with _entrar(_pads()):
+        at = _rodar()
+        at.slider(key="serie_media_movel").set_value(3).run()
+
+    assert not at.exception
+    assert len(at.get("plotly_chart")) >= 1
+
+
 def test_app_health_falha_exibe_error():
     pads = [
         patch("dashboard.api_client.health", side_effect=ApiError("API lenta")),
@@ -197,6 +206,21 @@ def test_app_previsao_sem_pontos_informa_usuario():
 
     assert not at.exception
     assert any("não contém pontos" in i.value for i in at.info)
+
+
+def test_app_previsao_falha_exibe_error():
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA]),
+        patch("dashboard.api_client.obter_dados", return_value=DADOS),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.obter_previsao", side_effect=ApiError("previsão indisponível")),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any("previsão indisponível" in e.value for e in at.error)
 
 
 def test_app_erro_ao_listar_modelos_exibe_error():

@@ -10,6 +10,11 @@ os gráficos com Plotly (`dashboard/visualizacoes.py`). Execução:
 A API deve estar no ar antes (uvicorn api.main:app --reload --port 8000).
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import pandas as pd
 import streamlit as st
 
@@ -34,6 +39,8 @@ from dashboard.visualizacoes import (
     modelos_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
+    rotulo_coluna,
+    rotulo_tabela,
 )
 
 TITULO = "Criminalidade Brasília/DF — Dashboard"
@@ -64,7 +71,7 @@ def _aba_series(base_url: str) -> None:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
 
-    tabela = st.selectbox("Tabela gold", tabelas, key="serie_tabela")
+    tabela = st.selectbox("Crimes", tabelas, key="serie_tabela", format_func=rotulo_tabela)
     df = _carregar_tabela_completa(base_url, tabela)
     if df.empty:
         st.info("A tabela selecionada ainda não foi materializada no banco.")
@@ -75,12 +82,26 @@ def _aba_series(base_url: str) -> None:
         st.info("A tabela selecionada não possui colunas numéricas para série temporal.")
         return
 
-    coluna_valor = st.selectbox("Coluna (indicador)", colunas_valor, key="serie_coluna")
-    agrupar = st.checkbox("Uma linha por Região Administrativa", value=True, key="serie_agrupar")
+    coluna_valor = st.selectbox(
+        "Coluna (indicador)", colunas_valor, key="serie_coluna", format_func=rotulo_coluna
+    )
+    if "regiao_administrativa" in df.columns:
+        ras_disponiveis = sorted(df["regiao_administrativa"].dropna().astype(str).unique())
+        ras = st.multiselect(
+            "Comparar RAs", ras_disponiveis, key="serie_ras",
+        )
+    else:
+        ras = []
+    janela = st.slider(
+        "Média móvel (janela, 1 = desativada)",
+        min_value=1, max_value=12, value=1, key="serie_media_movel",
+    )
 
     try:
-        fig = figura_serie_temporal(df, coluna_valor, agrupar_regiao=agrupar)
-        st.plotly_chart(fig, use_container_width=True)
+        fig = figura_serie_temporal(
+            df, coluna_valor, ras=ras, janela_media_movel=janela
+        )
+        st.plotly_chart(fig, width="stretch")
     except SemDadosParaGraficoError as exc:
         st.warning(str(exc))
 
@@ -92,7 +113,7 @@ def _aba_mapa(base_url: str) -> None:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
 
-    tabela = st.selectbox("Tabela gold", tabelas, key="mapa_tabela")
+    tabela = st.selectbox("Tabela gold", tabelas, key="mapa_tabela", format_func=rotulo_tabela)
     df = _carregar_tabela_completa(base_url, tabela)
     if df.empty:
         st.info("A tabela selecionada ainda não foi materializada no banco.")
@@ -102,10 +123,12 @@ def _aba_mapa(base_url: str) -> None:
     if not colunas_valor:
         st.info("A tabela selecionada não possui colunas numéricas para o mapa de calor.")
         return
-    coluna_valor = st.selectbox("Coluna (indicador)", colunas_valor, key="mapa_coluna")
+    coluna_valor = st.selectbox(
+        "Coluna (indicador)", colunas_valor, key="mapa_coluna", format_func=rotulo_coluna
+    )
 
     try:
-        st.plotly_chart(figura_heatmap_ra_ano(df, coluna_valor), use_container_width=True)
+        st.plotly_chart(figura_heatmap_ra_ano(df, coluna_valor), width="stretch")
     except SemDadosParaGraficoError as exc:
         st.warning(str(exc))
 
@@ -113,7 +136,7 @@ def _aba_mapa(base_url: str) -> None:
         anos = sorted(df["ano"].dropna().unique()) if "ano" in df.columns else []
         ano = st.selectbox("Ano para o ranking", [None] + [int(a) for a in anos], key="mapa_ano")
         try:
-            st.plotly_chart(figura_ranking_ra(df, coluna_valor, ano=ano), use_container_width=True)
+            st.plotly_chart(figura_ranking_ra(df, coluna_valor, ano=ano), width="stretch")
         except SemDadosParaGraficoError as exc:
             st.warning(str(exc))
 
@@ -143,8 +166,8 @@ def _aba_previsoes(base_url: str) -> None:
         st.info("A resposta de previsão não contém pontos.")
         return
 
-    st.plotly_chart(figura_previsao(payload), use_container_width=True)
-    st.dataframe(df_previsao, use_container_width=True)
+    st.plotly_chart(figura_previsao(payload), width="stretch")
+    st.dataframe(df_previsao, width="stretch")
 
     st.divider()
     st.markdown("### Modelos persistidos")
@@ -154,7 +177,7 @@ def _aba_previsoes(base_url: str) -> None:
         st.error(f"Não foi possível listar os modelos: {exc}")
         return
     if modelos:
-        st.dataframe(modelos_para_dataframe(modelos), use_container_width=True)
+        st.dataframe(modelos_para_dataframe(modelos), width="stretch")
     else:
         st.caption("Nenhum modelo persistido em models/ ainda.")
 
@@ -166,7 +189,7 @@ def _aba_tabelas(base_url: str) -> None:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
 
-    tabela = st.selectbox("Tabela gold", tabelas, key="tab_tabela")
+    tabela = st.selectbox("Tabela gold", tabelas, key="tab_tabela", format_func=rotulo_tabela)
 
     try:
         resumo = obter_resumo(tabela, base_url=base_url)
@@ -199,7 +222,7 @@ def _aba_tabelas(base_url: str) -> None:
         if ra is not None:
             df = df[df["regiao_administrativa"].astype(str) == ra]
 
-    st.dataframe(df, use_container_width=True, height=420)
+    st.dataframe(df, width="stretch", height=420)
 
 
 def main() -> None:
