@@ -5,6 +5,8 @@
 > **Revisão mais recente (verificada rodando a suíte de fato, commit `38a3d92`):** a cobertura de testes configurada em `pytest.ini` foi ampliada — hoje mede `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (não mais apenas `src`, `util` e `database`); só `validation/` segue sem cobertura própria. Números reais desta rodada: **391 testes coletados, 388 passando, 3 falhando, 99,18% de cobertura** (limiar mínimo 95%, atingido). As 3 falhas são um bug real e reprodutível, não um problema de ambiente — ver [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto). Também confirmado nesta revisão: `.env` **não está mais rastreado pelo Git** (item antes pendente, já resolvido), e todos os modelos `xgb_residual_log_*.pkl` já possuem `_meta.json` completo (a documentação anterior afirmava o contrário).
 >
 > **Implementação de item do roadmap — persistência do Prophet:** o item "persistir o modelo Prophet junto ao XGBoost em `models/`" foi implementado. `save_model_with_metadata` agora aceita um `prophet_model` opcional e salva o par como um único artefato "bundle"; `GET /previsao/crimes-contra-mulher` passa a servir por padrão a partir do bundle mais recente em disco (sem re-treinar), com fallback automático para treino quando não há artefato utilizável; um novo endpoint `POST /previsao/retrain` força o re-treino explícito. Detalhes em [Camada de Consumo (API)](#-camada-de-consumo-api--api). 16 novos testes adicionados (391 → 407 testes coletados), cobertura de `api/services/forecast_service.py` em 100%.
+>
+> **Revisão mais recente:** dashboard Streamlit implementado (séries temporais com **total consolidado + RAs selecionáveis** e média móvel, mapa de calor RA × ano, ranking, previsões e exploração das tabelas gold) e bug de variável de ambiente `POSTGRES_USERNAME` vs `POSTGRES_USER` em `tests/database/test_connection.py` corrigido — **466 testes, todos passando, 99,37% de cobertura**. Ver [Dashboard Interativo](#-dashboard-interativo-streamlit--dashboard) e [Qualidade e Testes](#-qualidade-e-testes).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -114,7 +116,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 407 testes coletados, 404 passam / 3 falham (bug conhecido, ver Qualidade e Testes), **99% de cobertura** em `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util`, limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 466 testes, todos passando, **99,37% de cobertura** em `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util`, limiar mínimo de 95% (`--cov-fail-under=95`) |
 | **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
 ### 🧩 Interações Principais (fluxo real)
@@ -169,13 +171,13 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 
 ## ✅ Qualidade e Testes
 
-- **407 testes** coletados (`pytest`), dos quais **404 passam** e **3 falham** por um bug real (ver tabela abaixo) — **99% de cobertura** sobre `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). `validation/` é o único pacote de produção ainda fora do escopo de cobertura.
+- **466 testes** coletados (`pytest`), **todos passando** — **99,37% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). `validation/` é o único pacote de produção ainda fora do escopo de cobertura.
 - Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `test_report/coverage` (HTML).
-- Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
+- Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
 
-### 🐛 Falha ativa encontrada nesta revisão
+### ✅ Bug de variável de ambiente em `test_connection.py` (resolvido)
 
-As 3 falhas em `tests/database/test_connection.py` (`test_obter_engine_sucesso`, `test_obter_engine_erro_sqlalchemy`, `test_logs_de_criacao_engine`) não são falhas de ambiente — são um **bug reprodutível de nome de variável**: a fixture `env_valido` (linha 9 do arquivo) define a variável de ambiente como `POSTGRES_USERNAME`, mas `database/connection.py::obter_engine` lê `POSTGRES_USER` (sem sufixo). Como a variável esperada nunca é encontrada, `obter_engine()` sempre levanta `EnvironmentError`/`OSError`, mesmo quando a fixture "válida" está em uso. Correção: alinhar o nome em um dos dois lados (recomenda-se ajustar a fixture de teste para `POSTGRES_USER`, já que é esse o nome usado também no `.env`/`docker-compose.yaml` reais).
+As 3 falhas em `tests/database/test_connection.py` (`test_obter_engine_sucesso`, `test_obter_engine_erro_sqlalchemy`, `test_logs_de_criacao_engine`) eram um **bug reprodutível de nome de variável**: a fixture `env_valido` definia a variável de ambiente como `POSTGRES_USERNAME`, mas `database/connection.py::obter_engine` lê `POSTGRES_USER` (sem sufixo). Como a variável esperada nunca era encontrada, `obter_engine()` levantava `EnvironmentError`, mesmo com a fixture "válida" em uso — e as 3 falhas só não apareciam em máquinas com `.env` presente. **Corrigido:** a fixture e o teste de variáveis incompletas agora usam `POSTGRES_USER` (nome canônico, igual ao `.env.example` e ao código de produção).
 
 ### 🔧 Histórico da retomada de cobertura (desta rodada de QA)
 
@@ -298,7 +300,7 @@ Testes: `tests/dashboard/` (56 testes) — o app é exercitado via `AppTest` (`s
 - ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
 - ✅ **`.env` não é mais rastreado pelo Git:** confirmado nesta revisão (`git ls-tree` não lista o arquivo) — o item antes pendente de `git rm --cached .env` já foi resolvido. Ainda assim, se alguma credencial real chegou a ser commitada antes dessa correção, ela permanece no histórico do repositório e deveria ter sido rotacionada por precaução.
 - ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,37%** (466 testes). Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
-- ⚠️ **Bug ativo — variável de ambiente divergente em teste:** ver seção "🐛 Falha ativa encontrada nesta revisão" em Qualidade e Testes. `POSTGRES_USERNAME` (fixture de teste) vs. `POSTGRES_USER` (código de produção) causa 3 falhas reprodutíveis em `tests/database/test_connection.py`.
+- ✅ **Bug de variável de ambiente em teste resolvido:** a fixture `env_valido` de `tests/database/test_connection.py` usava `POSTGRES_USERNAME`, divergente de `POSTGRES_USER` (código de produção e `.env.example`) — as 3 falhas só não apareciam com `.env` local. Corrigido para `POSTGRES_USER`; ver seção "✅ Qualidade e Testes".
 
 ## 🗺️ Roadmap / Visão Futura
 

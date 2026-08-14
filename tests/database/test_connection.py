@@ -6,7 +6,7 @@ import database.connection as connection
 
 @pytest.fixture
 def env_valido(monkeypatch):
-    monkeypatch.setenv("POSTGRES_USERNAME", "postgres")
+    monkeypatch.setenv("POSTGRES_USER", "postgres")
     monkeypatch.setenv("POSTGRES_PASSWORD", "senha@123")
     monkeypatch.setenv("POSTGRES_HOST", "localhost")
     monkeypatch.setenv("POSTGRES_PORT", "5432")
@@ -31,7 +31,7 @@ def test_obter_engine_sucesso(env_valido, monkeypatch):
 
 
 def test_obter_engine_variaveis_incompletas(monkeypatch):
-    monkeypatch.delenv("POSTGRES_USERNAME", raising=False)
+    monkeypatch.delenv("POSTGRES_USER", raising=False)
     monkeypatch.delenv("POSTGRES_PASSWORD", raising=False)
     monkeypatch.delenv("POSTGRES_HOST", raising=False)
     monkeypatch.delenv("POSTGRES_PORT", raising=False)
