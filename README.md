@@ -217,9 +217,13 @@ pytest
 # 6. Subir a API (camada de consumo)
 uvicorn api.main:app --reload --port 8000
 # Documentação interativa (Swagger): http://localhost:8000/docs
+
+# 7. Abrir o dashboard interativo (requer a API do passo 6 no ar)
+streamlit run dashboard/app.py
+# Acesse em: http://localhost:8501
 ```
 
-> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `plotly`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
+> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`, `streamlit`, `plotly`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
 
 ## 🌐 Camada de Consumo (API — `api/`)
 
@@ -256,6 +260,32 @@ api/
 
 Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade).
 
+## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
+
+Um painel web em **Streamlit** consome a API e desenha os gráficos com **Plotly**: séries temporais por Região Administrativa, mapa de calor RA × ano, ranking por RA, previsão Prophet+XGBoost (com métricas e arquivo do modelo) e exploração das tabelas gold. O painel não executa análise própria — apenas reaproveita os endpoints da API.
+
+```
+dashboard/
+├── app.py              # interface Streamlit (abas: Séries Temporais, Mapa de Calor, Previsões, Tabelas)
+├── api_client.py       # cliente HTTP para a API (requests)
+└── visualizacoes.py    # transformações pandas + figuras Plotly (funções puras, testáveis)
+```
+
+**Execução:**
+
+```bash
+# 1. API no ar (ver seção Camada de Consumo)
+uvicorn api.main:app --reload --port 8000
+
+# 2. Abrir o dashboard
+streamlit run dashboard/app.py
+# Acesse em: http://localhost:8501
+```
+
+A URL da API pode ser alterada na sidebar do próprio painel (padrão: `http://localhost:8000`).
+
+Testes: `tests/dashboard/` (47 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
+
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
 - ✅ **Padronização de RA consolidada:** as variantes de nome de Região Administrativa (ex.: `SUDOESTE` → `SUDOESTE/OCTOGONAL`) antes eram tratadas por chamadas pontuais e duplicadas de `renomear_linha` em `domain/violencia_mulher.py` e `domain/identificacao_crimes.py`, mais um `.replace({...})` inline e independente em `ViolenciaMulherService.carregar_feminicidio`. Agora existe um único mapeamento mestre (`util.padronizacao.MAPEAMENTO_REGIOES_ADMINISTRATIVAS`, aplicado via `renomear_regioes_conhecidas`), usado pelos três pontos — qualquer nova variante encontrada no futuro deve ser adicionada só ali. Cobertura de teste nova em `tests/util/test_padronizacao.py` e `tests/domain/` (que antes não existiam).
@@ -265,7 +295,7 @@ Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`,
 - ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
 - ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
 - ✅ **`.env` não é mais rastreado pelo Git:** confirmado nesta revisão (`git ls-tree` não lista o arquivo) — o item antes pendente de `git rm --cached .env` já foi resolvido. Ainda assim, se alguma credencial real chegou a ser commitada antes dessa correção, ela permanece no histórico do repositório e deveria ter sido rotacionada por precaução.
-- ✅ **Cobertura de teste ampliada:** `pytest.ini` agora mede `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,18%**. Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
+- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,40%** (457 testes). Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
 - ⚠️ **Bug ativo — variável de ambiente divergente em teste:** ver seção "🐛 Falha ativa encontrada nesta revisão" em Qualidade e Testes. `POSTGRES_USERNAME` (fixture de teste) vs. `POSTGRES_USER` (código de produção) causa 3 falhas reprodutíveis em `tests/database/test_connection.py`.
 
 ## 🗺️ Roadmap / Visão Futura
@@ -290,5 +320,5 @@ Os itens abaixo **não existem no código atual** — são direções possíveis
 ### Camada de consumo
 - ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.
 - ✅ **Prophet persistido junto ao XGBoost** — `GET /previsao/crimes-contra-mulher` já serve por padrão a partir do artefato ("bundle") salvo em `models/`, com `POST /previsao/retrain` como endpoint de retrain explícito. Ver seção "🌐 Camada de Consumo (API)" acima.
-- Dashboard interativo (Streamlit/Plotly) consumindo essa API, para mapas, séries temporais e aba de previsões.
+- ✅ **Dashboard interativo (Streamlit/Plotly) implementado** — ver seção "📊 Dashboard Interativo" acima.
 - Autenticação/API key e rate limiting, caso a API passe a ser exposta publicamente.
