@@ -7,12 +7,17 @@ Criminalidade Brasília - DF.
 Fonte oficial dos dados:
     .coverage
 
-Relatórios gerados:
+Relatórios:
     tests_report/cobertura-executiva.html
     tests_report/coverage/index.html
 
-O coverage.py continua sendo responsável pelos dados técnicos.
-Este script apenas apresenta esses dados de forma executiva.
+Responsabilidades:
+    - coverage.py continua sendo a fonte técnica oficial;
+    - este script apresenta os resultados de forma executiva;
+    - separa cobertura de linhas e branch coverage;
+    - utiliza o percentual oficial calculado pelo coverage.py;
+    - apresenta indicadores de qualidade;
+    - mantém compatibilidade com pytest-cov.
 
 Compatibilidade:
     Python 3.13+
@@ -24,6 +29,7 @@ from __future__ import annotations
 import html
 import sys
 from datetime import datetime
+from io import StringIO
 from pathlib import Path
 
 
@@ -33,14 +39,15 @@ from pathlib import Path
 
 PROJECT_NAME = "Criminalidade Brasília - DF"
 
-REPORT_TITLE = "Relatório Executivo de Cobertura de Código"
+REPORT_TITLE = "Relatório de Qualidade e Cobertura de Código"
 
 DESCRIPTION = (
-    "Análise consolidada da cobertura de código da aplicação, "
-    "com base nos resultados reais obtidos pelo coverage.py."
+    "Relatório executivo consolidado da qualidade da suíte "
+    "de testes automatizados, com análise de cobertura de "
+    "linhas e caminhos condicionais da aplicação."
 )
 
-MIN_COVERAGE = 85.0
+MIN_COVERAGE = 95.0
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -69,12 +76,23 @@ def format_number(value: int | float) -> str:
     return f"{value:,}".replace(",", ".")
 
 
+def percentage(value: float | None) -> str:
+    """
+    Formata percentual usando padrão brasileiro.
+    """
+
+    if value is None:
+        return "N/A"
+
+    return f"{value:.2f}%".replace(".", ",")
+
+
 def coverage_class(value: float) -> str:
     """
     Define a classificação visual da cobertura.
     """
 
-    if value >= 90:
+    if value >= 99:
         return "excellent"
 
     if value >= MIN_COVERAGE:
@@ -88,7 +106,7 @@ def coverage_class(value: float) -> str:
 
 def coverage_status(value: float) -> tuple[str, str]:
     """
-    Retorna status textual e classe CSS.
+    Retorna o status da cobertura.
     """
 
     if value >= MIN_COVERAGE:
@@ -97,12 +115,15 @@ def coverage_status(value: float) -> tuple[str, str]:
     return "ABAIXO DA META", "critical"
 
 
-def percentage(value: float) -> str:
+def coverage_status_icon(status: str) -> str:
     """
-    Formata percentual.
+    Retorna o ícone textual do status.
     """
 
-    return f"{value:.2f}%"
+    if status == "APROVADO":
+        return "✓"
+
+    return "✕"
 
 
 # ============================================================
@@ -112,31 +133,49 @@ def percentage(value: float) -> str:
 
 def load_coverage():
     """
-    Carrega os dados do arquivo .coverage utilizando
-    diretamente a API oficial do coverage.py.
+    Carrega o arquivo .coverage utilizando a API oficial
+    do coverage.py.
     """
 
     try:
         from coverage import Coverage
+
     except ImportError:
         print(
             "ERRO: o pacote 'coverage' não está instalado.",
             file=sys.stderr,
         )
+
         print(
-            "Instale com: pip install coverage",
+            "Instale com:",
             file=sys.stderr,
         )
+
+        print(
+            "pip install coverage",
+            file=sys.stderr,
+        )
+
         raise SystemExit(1)
 
     if not COVERAGE_FILE.exists():
         print(
-            f"ERRO: arquivo de cobertura não encontrado:\n{COVERAGE_FILE}",
+            "ERRO: arquivo .coverage não encontrado:",
             file=sys.stderr,
         )
 
         print(
-            "\nExecute primeiro:\npytest",
+            COVERAGE_FILE,
+            file=sys.stderr,
+        )
+
+        print(
+            "\nExecute primeiro:",
+            file=sys.stderr,
+        )
+
+        print(
+            "pytest",
             file=sys.stderr,
         )
 
@@ -154,12 +193,20 @@ def load_coverage():
 # ============================================================
 
 
-def collect_metrics(coverage):
+def collect_metrics(coverage) -> dict:
     """
-    Calcula os indicadores reais da cobertura utilizando
-    a API do coverage.py.
+    Coleta os indicadores reais da execução.
 
-    Compatível com diferentes versões do coverage.py.
+    O coverage.py permanece como fonte oficial.
+
+    Indicadores:
+        - cobertura de linhas;
+        - cobertura de branches;
+        - cobertura total oficial;
+        - arquivos;
+        - linhas;
+        - branches;
+        - módulos individuais.
     """
 
     data = coverage.get_data()
@@ -179,6 +226,7 @@ def collect_metrics(coverage):
 
         try:
             relative_path = path.relative_to(PROJECT_ROOT)
+
         except ValueError:
             relative_path = path
 
@@ -202,9 +250,6 @@ def collect_metrics(coverage):
             branch_total = 0
             branch_missing = 0
 
-            # IMPORTANTE:
-            # has_arcs é propriedade booleana em versões
-            # atuais do coverage.py.
             has_arcs = getattr(
                 analysis,
                 "has_arcs",
@@ -213,9 +258,9 @@ def collect_metrics(coverage):
 
             if has_arcs:
                 try:
-                    arcs = analysis.arc_possibilities()
+                    possible_arcs = analysis.arc_possibilities()
 
-                    branch_total = len(arcs)
+                    branch_total = len(possible_arcs)
 
                 except (
                     AttributeError,
@@ -242,13 +287,15 @@ def collect_metrics(coverage):
             # ==================================================
 
             total_statements += statements
+
             total_missing += missing
 
             total_branches += branch_total
+
             total_missing_branches += branch_missing
 
             # ==================================================
-            # COBERTURA DO ARQUIVO
+            # COBERTURA DE LINHAS
             # ==================================================
 
             if statements > 0:
@@ -256,6 +303,10 @@ def collect_metrics(coverage):
 
             else:
                 line_coverage = 100.0
+
+            # ==================================================
+            # COBERTURA DE BRANCHES
+            # ==================================================
 
             if branch_total > 0:
                 branch_coverage = ((branch_total - branch_missing) / branch_total) * 100
@@ -269,10 +320,10 @@ def collect_metrics(coverage):
                     "statements": statements,
                     "executed": executed,
                     "missing": missing,
-                    "coverage": line_coverage,
-                    "branch_total": branch_total,
-                    "branch_missing": branch_missing,
-                    "branch_coverage": branch_coverage,
+                    "coverage": (line_coverage),
+                    "branch_total": (branch_total),
+                    "branch_missing": (branch_missing),
+                    "branch_coverage": (branch_coverage),
                 }
             )
 
@@ -305,6 +356,26 @@ def collect_metrics(coverage):
         branch_coverage = None
 
     # ========================================================
+    # COBERTURA OFICIAL DO COVERAGE.PY
+    # ========================================================
+    #
+    # Importante:
+    #
+    # Quando branch=True, o coverage.py considera linhas
+    # e branches no percentual total.
+    #
+    # Portanto, não devemos tentar reproduzir manualmente
+    # o cálculo apresentado pelo pytest-cov.
+    # ========================================================
+
+    output = StringIO()
+
+    official_total = coverage.report(
+        file=output,
+        show_missing=False,
+    )
+
+    # ========================================================
     # RESULTADO
     # ========================================================
 
@@ -313,11 +384,12 @@ def collect_metrics(coverage):
         "modules": modules,
         "total_statements": (total_statements),
         "executed": (total_statements - total_missing),
-        "missing": total_missing,
+        "missing": (total_missing),
         "line_coverage": (line_coverage),
         "total_branches": (total_branches),
         "missing_branches": (total_missing_branches),
         "branch_coverage": (branch_coverage),
+        "total_coverage": (float(official_total)),
     }
 
 
@@ -328,25 +400,31 @@ def collect_metrics(coverage):
 
 def build_html(metrics: dict) -> str:
     """
-    Constrói o relatório HTML executivo.
+    Constrói o relatório executivo HTML.
     """
 
     line_coverage = metrics["line_coverage"]
 
+    total_coverage = metrics["total_coverage"]
+
     branch_coverage = metrics["branch_coverage"]
 
-    status, status_class = coverage_status(line_coverage)
+    status, status_class = coverage_status(total_coverage)
 
-    margin = line_coverage - MIN_COVERAGE
+    margin = total_coverage - MIN_COVERAGE
 
     generated_at = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+    # ========================================================
+    # TABELA DE MÓDULOS
+    # ========================================================
 
     module_rows = []
 
     sorted_modules = sorted(
         metrics["modules"],
         key=lambda item: (
-            -item["coverage"],
+            item["coverage"],
             item["file"],
         ),
     )
@@ -365,6 +443,7 @@ def build_html(metrics: dict) -> str:
         module_rows.append(
             f"""
             <tr>
+
                 <td>
                     <span class="file-name">
                         {html.escape(module["file"])}
@@ -384,13 +463,22 @@ def build_html(metrics: dict) -> str:
                 </td>
 
                 <td>
+
                     <div class="coverage-cell">
 
                         <div class="progress">
+
                             <div
-                                class="progress-bar {module_class}"
-                                style="width: {module_coverage:.2f}%"
+                                class="
+                                    progress-bar
+                                    {module_class}
+                                "
+                                style="
+                                    width:
+                                    {module_coverage:.2f}%
+                                "
                             ></div>
+
                         </div>
 
                         <span>
@@ -398,11 +486,13 @@ def build_html(metrics: dict) -> str:
                         </span>
 
                     </div>
+
                 </td>
 
                 <td class="number">
                     {branch_value}
                 </td>
+
             </tr>
             """
         )
@@ -420,10 +510,16 @@ def build_html(metrics: dict) -> str:
         <a
             class="button secondary"
             href="coverage/index.html"
+            target="_blank"
         >
-            Abrir relatório técnico do Coverage.py
+            Abrir relatório técnico
+            do Coverage.py
         </a>
         """
+
+    # ========================================================
+    # HTML
+    # ========================================================
 
     return f"""
 <!DOCTYPE html>
@@ -452,8 +548,14 @@ def build_html(metrics: dict) -> str:
 }}
 
 body {{
+
     margin: 0;
-    padding: 0;
+
+    background:
+        #f4f7fb;
+
+    color:
+        #1f2937;
 
     font-family:
         -apple-system,
@@ -461,355 +563,558 @@ body {{
         "Segoe UI",
         Arial,
         sans-serif;
-
-    background: #f4f7fb;
-    color: #1f2937;
 }}
 
 .container {{
-    width: min(1400px, 94%);
-    margin: 0 auto;
+
+    width:
+        min(1450px, 94%);
+
+    margin:
+        auto;
 }}
 
 .header {{
-    margin-top: 30px;
-    padding: 34px;
 
-    background: #ffffff;
+    margin-top:
+        30px;
 
-    border-radius: 14px;
+    padding:
+        34px;
 
-    border-left: 7px solid #1e3a5f;
+    background:
+        #ffffff;
+
+    border-radius:
+        14px;
+
+    border-left:
+        7px solid #1e3a5f;
 
     box-shadow:
-        0 4px 18px rgba(15, 23, 42, 0.08);
+        0 4px 18px
+        rgba(15, 23, 42, 0.08);
 }}
 
 .header h1 {{
-    margin: 0;
 
-    color: #1e3a5f;
+    margin:
+        0;
 
-    font-size: 30px;
+    color:
+        #1e3a5f;
+
+    font-size:
+        30px;
 }}
 
 .header h2 {{
-    margin: 8px 0 12px;
 
-    font-size: 21px;
+    margin:
+        8px 0 12px;
 
-    font-weight: 600;
+    color:
+        #334155;
 
-    color: #334155;
+    font-size:
+        21px;
+
+    font-weight:
+        600;
 }}
 
 .header p {{
-    margin: 0;
 
-    max-width: 900px;
+    max-width:
+        1000px;
 
-    color: #64748b;
+    margin:
+        0;
 
-    line-height: 1.6;
+    color:
+        #64748b;
+
+    line-height:
+        1.6;
 }}
 
 .status {{
-    margin-top: 22px;
 
-    padding: 18px;
+    margin-top:
+        22px;
 
-    border-radius: 10px;
+    padding:
+        18px;
 
-    text-align: center;
+    border-radius:
+        10px;
 
-    font-size: 20px;
+    text-align:
+        center;
 
-    font-weight: 700;
+    font-size:
+        20px;
+
+    font-weight:
+        700;
 }}
 
 .status.approved {{
-    background: #ecfdf5;
-    color: #166534;
-    border: 1px solid #86efac;
+
+    background:
+        #ecfdf5;
+
+    color:
+        #166534;
+
+    border:
+        1px solid #86efac;
 }}
 
 .status.critical {{
-    background: #fef2f2;
-    color: #991b1b;
-    border: 1px solid #fca5a5;
+
+    background:
+        #fef2f2;
+
+    color:
+        #991b1b;
+
+    border:
+        1px solid #fca5a5;
 }}
 
 .hero {{
-    margin-top: 22px;
 
-    padding: 38px;
+    margin-top:
+        22px;
 
-    background: #ffffff;
+    padding:
+        42px;
 
-    border-radius: 14px;
+    background:
+        #ffffff;
 
-    text-align: center;
+    border-radius:
+        14px;
+
+    text-align:
+        center;
 
     box-shadow:
-        0 4px 18px rgba(15, 23, 42, 0.08);
+        0 4px 18px
+        rgba(15, 23, 42, 0.08);
 }}
 
 .hero-value {{
-    font-size: 72px;
 
-    font-weight: 800;
+    font-size:
+        72px;
 
-    color: #1e3a5f;
+    font-weight:
+        800;
 
-    line-height: 1;
+    color:
+        #1e3a5f;
+
+    line-height:
+        1;
 }}
 
 .hero-label {{
-    margin-top: 12px;
 
-    color: #64748b;
+    margin-top:
+        12px;
 
-    font-size: 15px;
+    color:
+        #64748b;
 
-    text-transform: uppercase;
+    font-size:
+        15px;
 
-    letter-spacing: 1.5px;
+    text-transform:
+        uppercase;
+
+    letter-spacing:
+        1.5px;
+}}
+
+.hero-description {{
+
+    margin-top:
+        14px;
+
+    color:
+        #64748b;
+
+    font-size:
+        14px;
 }}
 
 .cards {{
-    display: grid;
+
+    display:
+        grid;
 
     grid-template-columns:
-        repeat(auto-fit, minmax(210px, 1fr));
+        repeat(
+            auto-fit,
+            minmax(200px, 1fr)
+        );
 
-    gap: 16px;
+    gap:
+        16px;
 
-    margin-top: 22px;
+    margin-top:
+        22px;
 }}
 
 .card {{
-    background: #ffffff;
 
-    border-radius: 12px;
+    padding:
+        24px;
 
-    padding: 24px;
+    background:
+        #ffffff;
 
-    text-align: center;
+    border-radius:
+        12px;
+
+    text-align:
+        center;
 
     box-shadow:
-        0 4px 18px rgba(15, 23, 42, 0.06);
+        0 4px 18px
+        rgba(15, 23, 42, 0.06);
 }}
 
 .card-value {{
-    font-size: 30px;
 
-    font-weight: 750;
+    font-size:
+        30px;
 
-    color: #1e3a5f;
+    font-weight:
+        750;
+
+    color:
+        #1e3a5f;
 }}
 
 .card-label {{
-    margin-top: 7px;
 
-    font-size: 13px;
+    margin-top:
+        7px;
 
-    color: #64748b;
+    color:
+        #64748b;
+
+    font-size:
+        13px;
 }}
 
 .section {{
-    margin-top: 28px;
 
-    padding: 28px;
+    margin-top:
+        28px;
 
-    background: #ffffff;
+    padding:
+        28px;
 
-    border-radius: 14px;
+    background:
+        #ffffff;
+
+    border-radius:
+        14px;
 
     box-shadow:
-        0 4px 18px rgba(15, 23, 42, 0.06);
+        0 4px 18px
+        rgba(15, 23, 42, 0.06);
 }}
 
 .section h3 {{
-    margin-top: 0;
 
-    padding-bottom: 12px;
+    margin-top:
+        0;
 
-    border-bottom: 2px solid #e2e8f0;
+    padding-bottom:
+        12px;
 
-    color: #1e3a5f;
+    border-bottom:
+        2px solid #e2e8f0;
 
-    font-size: 20px;
+    color:
+        #1e3a5f;
+
+    font-size:
+        20px;
+}}
+
+.info-table,
+.modules-table {{
+
+    width:
+        100%;
+
+    border-collapse:
+        collapse;
+}}
+
+.info-table td {{
+
+    padding:
+        12px;
+
+    border-bottom:
+        1px solid #e2e8f0;
+}}
+
+.info-table td:first-child {{
+
+    width:
+        35%;
+
+    font-weight:
+        600;
+
+    color:
+        #475569;
 }}
 
 .table-wrapper {{
-    overflow-x: auto;
+
+    overflow-x:
+        auto;
 }}
 
-table {{
-    width: 100%;
+.modules-table {{
 
-    border-collapse: collapse;
-
-    min-width: 850px;
+    min-width:
+        900px;
 }}
 
-th {{
-    padding: 13px 12px;
+.modules-table th {{
 
-    background: #f8fafc;
+    padding:
+        13px 12px;
 
-    color: #475569;
+    background:
+        #f8fafc;
 
-    text-align: left;
+    color:
+        #475569;
 
-    font-size: 13px;
+    text-align:
+        left;
 
-    border-bottom: 2px solid #e2e8f0;
+    font-size:
+        13px;
+
+    border-bottom:
+        2px solid #e2e8f0;
 }}
 
-td {{
-    padding: 13px 12px;
+.modules-table td {{
 
-    border-bottom: 1px solid #e2e8f0;
+    padding:
+        13px 12px;
 
-    font-size: 13px;
+    border-bottom:
+        1px solid #e2e8f0;
+
+    font-size:
+        13px;
 }}
 
 .number {{
-    text-align: right;
 
-    font-variant-numeric: tabular-nums;
+    text-align:
+        right;
+
+    font-variant-numeric:
+        tabular-nums;
 }}
 
 .file-name {{
+
     font-family:
         Consolas,
         "Courier New",
         monospace;
 
-    color: #334155;
+    color:
+        #334155;
 }}
 
 .coverage-cell {{
-    display: flex;
 
-    align-items: center;
+    display:
+        flex;
 
-    gap: 10px;
+    align-items:
+        center;
+
+    gap:
+        10px;
 }}
 
 .progress {{
-    width: 130px;
 
-    height: 9px;
+    width:
+        130px;
 
-    background: #e2e8f0;
+    height:
+        9px;
 
-    border-radius: 20px;
+    background:
+        #e2e8f0;
 
-    overflow: hidden;
+    border-radius:
+        20px;
+
+    overflow:
+        hidden;
 }}
 
 .progress-bar {{
-    height: 100%;
 
-    border-radius: 20px;
+    height:
+        100%;
+
+    border-radius:
+        20px;
 }}
 
 .progress-bar.excellent {{
-    background: #15803d;
+
+    background:
+        #15803d;
 }}
 
 .progress-bar.approved {{
-    background: #2563eb;
+
+    background:
+        #2563eb;
 }}
 
 .progress-bar.warning {{
-    background: #d97706;
+
+    background:
+        #d97706;
 }}
 
 .progress-bar.critical {{
-    background: #dc2626;
+
+    background:
+        #dc2626;
 }}
 
-.info-table {{
-    width: 100%;
+.highlight {{
 
-    min-width: auto;
+    padding:
+        20px;
+
+    margin-top:
+        15px;
+
+    border-radius:
+        10px;
+
+    background:
+        #f8fafc;
+
+    border-left:
+        4px solid #1e3a5f;
 }}
 
-.info-table td:first-child {{
-    width: 35%;
+.highlight strong {{
 
-    font-weight: 600;
-
-    color: #475569;
-}}
-
-.info-table td:last-child {{
-    color: #1f2937;
+    color:
+        #1e3a5f;
 }}
 
 .buttons {{
-    display: flex;
 
-    flex-wrap: wrap;
+    display:
+        flex;
 
-    gap: 12px;
+    flex-wrap:
+        wrap;
 
-    margin-top: 20px;
+    gap:
+        12px;
+
+    margin-top:
+        20px;
 }}
 
 .button {{
-    display: inline-block;
 
-    padding: 11px 18px;
+    display:
+        inline-block;
 
-    border-radius: 8px;
+    padding:
+        11px 18px;
 
-    text-decoration: none;
+    border-radius:
+        8px;
 
-    font-size: 14px;
+    text-decoration:
+        none;
 
-    font-weight: 600;
+    font-size:
+        14px;
+
+    font-weight:
+        600;
 }}
 
 .button.secondary {{
-    background: #1e3a5f;
 
-    color: #ffffff;
+    background:
+        #1e3a5f;
+
+    color:
+        #ffffff;
 }}
 
 .footer {{
-    margin: 28px 0;
 
-    padding: 20px;
+    margin:
+        28px 0;
 
-    text-align: center;
+    padding:
+        20px;
 
-    color: #64748b;
+    color:
+        #64748b;
 
-    font-size: 12px;
+    text-align:
+        center;
+
+    font-size:
+        12px;
 }}
 
 @media (max-width: 700px) {{
 
     .header {{
-        padding: 24px;
+        padding:
+            24px;
     }}
 
     .header h1 {{
-        font-size: 24px;
+        font-size:
+            24px;
     }}
 
     .hero-value {{
-        font-size: 56px;
+        font-size:
+            56px;
     }}
 
     .section {{
-        padding: 20px;
+        padding:
+            20px;
     }}
-
 }}
 
 </style>
@@ -838,19 +1143,34 @@ td {{
 
 
     <div class="status {status_class}">
-        {"✓" if status == "APROVADO" else "✕"}
+
+        {coverage_status_icon(status)}
+
         {status}
+
     </div>
 
 
     <section class="hero">
 
         <div class="hero-value">
-            {percentage(line_coverage)}
+
+            {percentage(total_coverage)}
+
         </div>
 
         <div class="hero-label">
-            Cobertura total de linhas
+
+            Cobertura Total
+
+        </div>
+
+        <div class="hero-description">
+
+            Indicador oficial calculado pelo
+            coverage.py considerando linhas
+            e caminhos condicionais.
+
         </div>
 
     </section>
@@ -861,11 +1181,15 @@ td {{
         <div class="card">
 
             <div class="card-value">
+
                 {percentage(line_coverage)}
+
             </div>
 
             <div class="card-label">
+
                 Cobertura de linhas
+
             </div>
 
         </div>
@@ -874,11 +1198,32 @@ td {{
         <div class="card">
 
             <div class="card-value">
+
+                {branch_display}
+
+            </div>
+
+            <div class="card-label">
+
+                Branch coverage
+
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-value">
+
                 {percentage(MIN_COVERAGE)}
+
             </div>
 
             <div class="card-label">
+
                 Meta mínima
+
             </div>
 
         </div>
@@ -887,11 +1232,15 @@ td {{
         <div class="card">
 
             <div class="card-value">
+
                 {margin:+.2f} p.p.
+
             </div>
 
             <div class="card-label">
+
                 Margem sobre a meta
+
             </div>
 
         </div>
@@ -900,11 +1249,15 @@ td {{
         <div class="card">
 
             <div class="card-value">
+
                 {format_number(len(metrics["modules"]))}
+
             </div>
 
             <div class="card-label">
+
                 Arquivos analisados
+
             </div>
 
         </div>
@@ -913,11 +1266,15 @@ td {{
         <div class="card">
 
             <div class="card-value">
+
                 {format_number(metrics["total_statements"])}
+
             </div>
 
             <div class="card-label">
-                Linhas de código
+
+                Linhas analisadas
+
             </div>
 
         </div>
@@ -926,11 +1283,32 @@ td {{
         <div class="card">
 
             <div class="card-value">
+
                 {format_number(metrics["missing"])}
+
             </div>
 
             <div class="card-label">
+
                 Linhas não cobertas
+
+            </div>
+
+        </div>
+
+
+        <div class="card">
+
+            <div class="card-value">
+
+                {format_number(metrics["total_branches"])}
+
+            </div>
+
+            <div class="card-label">
+
+                Branches analisados
+
             </div>
 
         </div>
@@ -941,12 +1319,71 @@ td {{
     <section class="section">
 
         <h3>
-            Indicadores de Branch Coverage
+            Resumo Executivo
+        </h3>
+
+        <div class="highlight">
+
+            <strong>
+                Resultado da avaliação:
+            </strong>
+
+            A aplicação apresenta
+            <strong>
+                {percentage(line_coverage)}
+            </strong>
+            de cobertura de linhas e
+            <strong>
+                {percentage(total_coverage)}
+            </strong>
+            de cobertura total segundo o
+            coverage.py.
+
+            A meta mínima estabelecida de
+            <strong>
+                {percentage(MIN_COVERAGE)}
+            </strong>
+            foi atingida.
+
+        </div>
+
+        <div class="highlight">
+
+            <strong>
+                Qualidade da suíte:
+            </strong>
+
+            Foram analisadas
+            <strong>
+                {format_number(metrics["total_statements"])}
+            </strong>
+            linhas de código, das quais
+            <strong>
+                {format_number(metrics["executed"])}
+            </strong>
+            foram executadas pelos testes.
+
+            O resultado apresenta
+            <strong>
+                {format_number(metrics["missing"])}
+            </strong>
+            linhas não cobertas.
+
+        </div>
+
+    </section>
+
+
+    <section class="section">
+
+        <h3>
+            Branch Coverage
         </h3>
 
         <table class="info-table">
 
             <tr>
+
                 <td>
                     Branch coverage
                 </td>
@@ -954,9 +1391,11 @@ td {{
                 <td>
                     {branch_display}
                 </td>
+
             </tr>
 
             <tr>
+
                 <td>
                     Branches analisados
                 </td>
@@ -964,9 +1403,11 @@ td {{
                 <td>
                     {format_number(metrics["total_branches"])}
                 </td>
+
             </tr>
 
             <tr>
+
                 <td>
                     Branches não cobertos
                 </td>
@@ -974,6 +1415,7 @@ td {{
                 <td>
                     {format_number(metrics["missing_branches"])}
                 </td>
+
             </tr>
 
         </table>
@@ -989,7 +1431,7 @@ td {{
 
         <div class="table-wrapper">
 
-            <table>
+            <table class="modules-table">
 
                 <thead>
 
@@ -1045,6 +1487,7 @@ td {{
         <table class="info-table">
 
             <tr>
+
                 <td>
                     Projeto
                 </td>
@@ -1052,9 +1495,11 @@ td {{
                 <td>
                     {html.escape(PROJECT_NAME)}
                 </td>
+
             </tr>
 
             <tr>
+
                 <td>
                     Ferramenta
                 </td>
@@ -1062,9 +1507,11 @@ td {{
                 <td>
                     coverage.py / pytest-cov
                 </td>
+
             </tr>
 
             <tr>
+
                 <td>
                     Branch Coverage
                 </td>
@@ -1072,9 +1519,11 @@ td {{
                 <td>
                     {"Ativada" if metrics["total_branches"] else "Não disponível"}
                 </td>
+
             </tr>
 
             <tr>
+
                 <td>
                     Meta mínima
                 </td>
@@ -1082,19 +1531,35 @@ td {{
                 <td>
                     {percentage(MIN_COVERAGE)}
                 </td>
+
             </tr>
 
             <tr>
+
                 <td>
-                    Cobertura obtida
+                    Cobertura de linhas
                 </td>
 
                 <td>
                     {percentage(line_coverage)}
                 </td>
+
             </tr>
 
             <tr>
+
+                <td>
+                    Cobertura total
+                </td>
+
+                <td>
+                    {percentage(total_coverage)}
+                </td>
+
+            </tr>
+
+            <tr>
+
                 <td>
                     Status
                 </td>
@@ -1102,9 +1567,11 @@ td {{
                 <td>
                     {status}
                 </td>
+
             </tr>
 
             <tr>
+
                 <td>
                     Data/Hora
                 </td>
@@ -1112,6 +1579,7 @@ td {{
                 <td>
                     {generated_at}
                 </td>
+
             </tr>
 
         </table>
@@ -1127,12 +1595,14 @@ td {{
 
     <footer class="footer">
 
-        Relatório gerado automaticamente a partir dos dados
-        oficiais do coverage.py.
+        Relatório gerado automaticamente a partir
+        dos dados oficiais do coverage.py.
 
-        <br>
+        <br><br>
 
-        Criminalidade Brasília - DF
+        <strong>
+            {html.escape(PROJECT_NAME)}
+        </strong>
 
     </footer>
 
@@ -1151,7 +1621,7 @@ td {{
 
 def generate_report() -> None:
     """
-    Executa todo o processo de geração.
+    Executa todo o processo de geração do relatório.
     """
 
     print("=" * 70)
@@ -1180,18 +1650,26 @@ def generate_report() -> None:
         encoding="utf-8",
     )
 
+    status, _ = coverage_status(metrics["total_coverage"])
+
     print("\nRelatório gerado com sucesso:")
 
     print(f"  {EXECUTIVE_REPORT}")
 
     print("\nIndicadores:")
 
+    print(f"  Cobertura total     : {percentage(metrics['total_coverage'])}")
+
     print(f"  Cobertura de linhas : {percentage(metrics['line_coverage'])}")
 
     if metrics["branch_coverage"] is not None:
-        print(f"  Cobertura de branches: {percentage(metrics['branch_coverage'])}")
+        print(f"  Cobertura branches  : {percentage(metrics['branch_coverage'])}")
 
     print(f"  Meta mínima         : {percentage(MIN_COVERAGE)}")
+
+    print(
+        f"  Margem sobre meta   : {metrics['total_coverage'] - MIN_COVERAGE:+.2f} p.p."
+    )
 
     print(f"  Arquivos analisados : {format_number(len(metrics['modules']))}")
 
@@ -1201,7 +1679,9 @@ def generate_report() -> None:
 
     print(f"  Linhas não cobertas : {format_number(metrics['missing'])}")
 
-    status, _ = coverage_status(metrics["line_coverage"])
+    print(f"  Branches analisados : {format_number(metrics['total_branches'])}")
+
+    print(f"  Branches não cobertos: {format_number(metrics['missing_branches'])}")
 
     print(f"  Status              : {status}")
 
@@ -1211,6 +1691,7 @@ def generate_report() -> None:
 # ============================================================
 # ENTRY POINT
 # ============================================================
+
 
 if __name__ == "__main__":
     generate_report()

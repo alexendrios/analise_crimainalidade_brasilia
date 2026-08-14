@@ -3,7 +3,7 @@ from ingestion.repository_adapter import Repository
 from domain.violencia_mulher import ViolenciaMulherService
 from util.padronizacao import (
     padronizar_regiao,
-    renomear_linha,
+    renomear_regioes_conhecidas,
     normalizar_colunas,
 )
 
@@ -39,13 +39,9 @@ class IdentificacaoCrimesService:
         for col in colunas_padronizar:
             df = padronizar_regiao(df, col)
 
-        # 🔹 regras de negócio
-        df = renomear_linha(
-            df, "regiao_administrativa", "SUDOESTE", "SUDOESTE/OCTOGONAL"
-        )
-        df = renomear_linha(
-            df, "regiao_administrativa", "SCIA E ESTRUTURAL", "SCIA/ESTRUTURAL"
-        )
+        # 🔹 regras de negócio: mapeamento mestre de variantes de nome de RA
+        # (centralizado em util/padronizacao.py, ver MAPEAMENTO_REGIOES_ADMINISTRATIVAS)
+        df = renomear_regioes_conhecidas(df, "regiao_administrativa")
 
         # 🔹 tipagem segura
         df[["idade___vítima", "idade___autor"]] = (

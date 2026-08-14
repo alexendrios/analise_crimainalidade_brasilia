@@ -153,10 +153,6 @@ REM ============================================================
 REM ABRIR RELATORIOS NO NAVEGADOR
 REM ============================================================
 
-choice /C SN /N /M "Deseja abrir os relatorios no navegador? [S/N]: "
-
-if errorlevel 2 goto :END
-
 if exist "test_report\relatorio-testes.html" (
     start "" "test_report\relatorio-testes.html"
 )

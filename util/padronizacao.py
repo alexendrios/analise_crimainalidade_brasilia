@@ -32,6 +32,65 @@ def renomear_linha(dataset, coluna, registro_principal, registro_nomeado):
 
     return dataset
 
+
+# =========================================================
+# MAPEAMENTO MESTRE DE VARIANTES DE NOME DE RA
+# =========================================================
+#
+# Consolida em um único lugar as regras de negócio de "apelidos"/variantes
+# de nome de Região Administrativa (RA) que antes estavam espalhadas e
+# duplicadas de formas ligeiramente diferentes em vários serviços de
+# domínio: chamadas repetidas a `renomear_linha` em
+# `domain/violencia_mulher.py` e `domain/identificacao_crimes.py`, e um
+# `.replace({...})` inline e independente em
+# `ViolenciaMulherService.carregar_feminicidio`. Qualquer nova variante de
+# nome de RA identificada no futuro deve ser adicionada aqui, e não em um
+# novo ponto de correção isolado dentro de um serviço de domínio.
+MAPEAMENTO_REGIOES_ADMINISTRATIVAS = {
+    "SUDOESTE": "SUDOESTE/OCTOGONAL",
+    "SCIA E ESTRUTURAL": "SCIA/ESTRUTURAL",
+    "BRASILIA (PLANO PILOTO)": "PLANO PILOTO",
+    "SIA": "SIA (SETOR DE INDUSTRIA E ABASTECIMENTO)",
+    "SOL NASCENTE/POR DO SOL": "POR DO SOL/SOL NASCENTE",
+    "ARNIQUEIRA": "ARNIQUEIRAS",
+}
+
+
+def renomear_regioes_conhecidas(df: pd.DataFrame, coluna: str, mapeamento: dict | None = None) -> pd.DataFrame:
+    """
+    Aplica, em uma única passada, o mapeamento mestre de variantes de nome
+    de Região Administrativa (RA) conhecidas pelo projeto (ex.:
+    "SUDOESTE" -> "SUDOESTE/OCTOGONAL").
+
+    Substitui o padrão anterior de várias chamadas sequenciais a
+    `renomear_linha` (uma por variante) espalhadas e duplicadas entre
+    serviços de domínio, ou de dicionários `.replace()` inline
+    equivalentes escritos à mão em cada serviço.
+
+    :param df: DataFrame de entrada.
+    :param coluna: Nome da coluna com os valores de RA a normalizar.
+    :param mapeamento: Dicionário opcional {valor_atual: valor_canônico}.
+        Por padrão usa `MAPEAMENTO_REGIOES_ADMINISTRATIVAS`. Um serviço de
+        domínio com uma regra verdadeiramente pontual (não compartilhada)
+        ainda pode passar seu próprio dicionário aqui.
+    :raises ValueError: se `coluna` não existir no DataFrame.
+    """
+    if coluna not in df.columns:
+        logger.error(f"Coluna '{coluna}' não encontrada no DataFrame")
+        raise ValueError(f"Coluna '{coluna}' não existe")
+
+    mapa = mapeamento if mapeamento is not None else MAPEAMENTO_REGIOES_ADMINISTRATIVAS
+
+    afetados = int(df[coluna].isin(mapa.keys()).sum())
+    logger.info(
+        f"Aplicando mapeamento mestre de RA na coluna '{coluna}': "
+        f"{afetados} registro(s) afetado(s) ({len(mapa)} regra(s) conhecidas)"
+    )
+
+    df.loc[:, coluna] = df[coluna].replace(mapa)
+
+    return df
+
 def recriar_regiao_com_valor(
     df: pd.DataFrame,
     nome_regiao: str,

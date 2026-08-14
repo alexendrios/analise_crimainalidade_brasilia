@@ -93,6 +93,44 @@ def test_gerar_previsao_sucesso_e_cache():
         mock_prever.assert_called_once()  # não foi chamado de novo
 
 
+def test_gerar_previsao_cache_expirado_forca_retreino():
+    """Cobre o ramo em que existe entrada em cache, mas ela já expirou
+    (agora >= expira_em) -> deve ignorar o cache e retreinar."""
+    df = _df_base()
+    df_preparado = df.copy()
+    df_preparado["ano"] = pd.to_datetime(df_preparado["ano"], format="%Y")
+
+    forecast_fake = pd.DataFrame(
+        {
+            "ano": [pd.Timestamp("2021-01-01")],
+            "prophet": [130.0],
+            "residual_log": [0.01],
+            "final": [131.0],
+        }
+    )
+
+    # semeia uma entrada de cache já expirada (expira_em no passado)
+    forecast_service._CACHE[1] = (0.0, {"previsao": "stale"})
+
+    with (
+        patch("api.services.forecast_service.Repository.load", return_value=df),
+        patch(
+            "api.services.forecast_service.preparar_dados", return_value=df_preparado
+        ),
+        patch(
+            "api.services.forecast_service.treinar_residual",
+            return_value=(MagicMock(), MagicMock(), {"mae": 0.1, "rmse": 0.1}, -0.5, 0.5, {}),
+        ),
+        patch(
+            "api.services.forecast_service.prever_futuro", return_value=forecast_fake
+        ) as mock_prever,
+    ):
+        resultado = forecast_service.gerar_previsao(horizonte_anos=1, usar_cache=True)
+
+    mock_prever.assert_called_once()
+    assert resultado["previsao"] != "stale"
+
+
 def test_gerar_previsao_usar_cache_false_forca_retreino():
     df = _df_base()
     df_preparado = df.copy()

@@ -104,3 +104,40 @@ def test_obter_dados_tabela_pagina_fora_do_intervalo_e_ajustada():
     assert resultado["pagina"] == 1
     assert resultado["total_paginas"] == 1
     assert len(resultado["registros"]) == 3
+
+
+def test_obter_dados_tabela_filtro_somente_ano_max():
+    df = pd.DataFrame({"ano": [2020, 2021, 2022], "crimes_contra_mulher": [1, 2, 3]})
+
+    with patch("api.services.gold_service.Repository.load", return_value=df):
+        resultado = gold_service.obter_dados_tabela(
+            "violencia_contra_mulher_gold", ano_max=2021
+        )
+
+    anos = {r["ano"] for r in resultado["registros"]}
+    assert anos == {2020, 2021}
+
+
+def test_obter_dados_tabela_sem_filtros_retorna_tudo():
+    df = pd.DataFrame({"ano": [2020, 2021], "crimes_contra_mulher": [1, 2]})
+
+    with patch("api.services.gold_service.Repository.load", return_value=df):
+        resultado = gold_service.obter_dados_tabela("violencia_contra_mulher_gold")
+
+    assert resultado["total_linhas"] == 2
+
+
+def test_obter_dados_tabela_tabela_sem_coluna_de_ano_ignora_filtro_de_ano():
+    """
+    Tabelas fora de COLUNA_ANO_POR_TABELA (ex.: violencia_idosos_gold) não
+    têm coluna de ano mapeada -> o filtro ano_min/ano_max deve ser
+    simplesmente ignorado, sem erro.
+    """
+    df = pd.DataFrame({"regiao_administrativa": ["CEILANDIA", "GAMA"], "valor": [1, 2]})
+
+    with patch("api.services.gold_service.Repository.load", return_value=df):
+        resultado = gold_service.obter_dados_tabela(
+            "violencia_idosos_gold", ano_min=2020, ano_max=2021
+        )
+
+    assert resultado["total_linhas"] == 2

@@ -2,7 +2,7 @@
 
 > **Nota de atualização:** esta documentação foi revisada para refletir o que está **efetivamente implementado no código** na data desta análise. A versão anterior descrevia uma arquitetura geoespacial com PostGIS, malha hexagonal, dashboard Streamlit e API FastAPI — nenhum desses componentes existe hoje no repositório. Eles foram movidos para a seção [Roadmap](#-roadmap--visão-futura), mantidos apenas como direção futura possível.
 >
-> **Revisão mais recente (commit `ade0c3d`):** os números de teste/cobertura abaixo foram reexecutados e confirmados (**303 testes, 0 falhas, 100% de cobertura**). Duas informações desatualizadas foram corrigidas: o repositório **passou a ter `requirements.txt`** (a seção "Como Executar" foi ajustada) e a antiga pasta `docs/` (com `projeto.md`) **foi removida** — este `README.md` é hoje a única documentação do projeto. Detalhes em [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto).
+> **Revisão mais recente:** API de consumo (FastAPI) implementada, suíte de testes de `download_arquivo` corrigida (mock de `requests.Session` em vez de `requests.get`, suíte 19min→16s) e padronização de RA consolidada num mapeamento mestre único. Números atualizados: **343 testes, 0 falhas, 100% de cobertura** em `src`, `util` e `database` (limiar mínimo 95%). Três itens antes listados como pendentes em "Pontos de Atenção" já estavam resolvidos no código mas com documentação desatualizada — corrigido nesta revisão: `requirements.txt` curado, metadados `_meta.json` padronizados para todos os modelos, e `correcoes.patch` já removido do repositório. Detalhes em [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -112,7 +112,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 303 testes automatizados, 0 falhas, **100% de cobertura** em `src`, `util` e `database`, limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 343 testes automatizados, 0 falhas, **100% de cobertura** em `src`, `util` e `database`, limiar mínimo de 95% (`--cov-fail-under=95`) |
 | **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
 ### 🧩 Interações Principais (fluxo real)
@@ -167,7 +167,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 
 ## ✅ Qualidade e Testes
 
-- **303 testes** automatizados (`pytest`), **0 falhas**, **cobertura de 100%** sobre `src`, `util` e `database` (limiar mínimo configurado: 95%, `--cov-fail-under=95`).
+- **343 testes** automatizados (`pytest`), **0 falhas**, **cobertura de 100%** sobre `src`, `util` e `database` (limiar mínimo configurado: 95%, `--cov-fail-under=95`).
 - Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `coverage_report/` (HTML).
 - Suíte organizada por domínio: `tests/arquivos`, `tests/core`, `tests/dados`, `tests/database`, `tests/pipeline`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
 
@@ -213,7 +213,7 @@ uvicorn api.main:app --reload --port 8000
 # Documentação interativa (Swagger): http://localhost:8000/docs
 ```
 
-> ⚠️ **Ponto de atenção:** o `requirements.txt` existe no repositório e instala corretamente todas as dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `pytest`, `pytest-cov`, `pytest-html` — confirmado nesta revisão rodando a suíte completa a partir dele). Porém é um `pip freeze` bruto do ambiente de desenvolvimento, não uma lista curada: mistura dependências de execução com ferramentas de ambiente local que o projeto não usa em tempo de execução (`jupyter`, `notebook`, `ipykernel`, `matplotlib`, `plotly`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows e pode falhar a instalação em Linux/macOS). Recomenda-se separar um `requirements.txt` mínimo de produção de um `requirements-dev.txt` para notebooks/testes de integração.
+> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `plotly`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
 
 ## 🌐 Camada de Consumo (API — `api/`)
 
@@ -249,13 +249,13 @@ Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`,
 
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
-- **Padronização de RA espalhada:** a normalização de nomes de Regiões Administrativas (`util/padronizacao.py`) é chamada repetidamente em vários serviços de domínio, com pequenos ajustes pontuais (ex.: `renomear_linha`, `recriar_regiao_com_valor`) espalhados pelo código — candidato a um mapeamento mestre único.
+- ✅ **Padronização de RA consolidada:** as variantes de nome de Região Administrativa (ex.: `SUDOESTE` → `SUDOESTE/OCTOGONAL`) antes eram tratadas por chamadas pontuais e duplicadas de `renomear_linha` em `domain/violencia_mulher.py` e `domain/identificacao_crimes.py`, mais um `.replace({...})` inline e independente em `ViolenciaMulherService.carregar_feminicidio`. Agora existe um único mapeamento mestre (`util.padronizacao.MAPEAMENTO_REGIOES_ADMINISTRATIVAS`, aplicado via `renomear_regioes_conhecidas`), usado pelos três pontos — qualquer nova variante encontrada no futuro deve ser adicionada só ali. Cobertura de teste nova em `tests/util/test_padronizacao.py` e `tests/domain/` (que antes não existiam).
 - **Full Refresh:** toda carga no Postgres recria a tabela (`if_exists="replace"`); não há carga incremental.
 - **Maturidade desigual entre pipelines:** o pipeline Silver (`pipeline_busca_transformacao.py`) é procedural e sequencial; o pipeline Gold (`pipeline_tabela_gold.py`) já usa o padrão declarativo `PipelineStep` + executor paralelo — seria interessante levar o Silver para o mesmo modelo.
 - **`src/main.py` executa as três etapas:** coleta/transformação, tabela gold e modelagem rodam em sequência por padrão — todo o fluxo tem cobertura de teste (incluindo o bloco `if __name__ == "__main__":`, coberto via `runpy`).
-- **Modelos sem metadado padronizado:** nem todos os artefatos em `models/` possuem `_meta.json` (os mais recentes, `xgb_residual_log_*`, não geram); padronizar isso ajuda a rastrear qual modelo está em produção.
-- **Artefato de desenvolvimento versionado:** o arquivo `correcoes.patch` (diff de correções de testes de uma rodada de QA anterior, ~300 linhas) está commitado na raiz do repositório desde a task 19 e já foi aplicado ao código — não tem função em produção nem serve como changelog formal. Candidato a remoção (`git rm correcoes.patch`) ou, se o histórico for valioso, mover o conteúdo para um `CHANGELOG.md`.
-- **`requirements.txt` não é um manifesto curado:** conforme detalhado na seção "Como Executar", o arquivo é um `pip freeze` do ambiente de desenvolvimento e inclui pacotes que não são dependências do projeto em si (Jupyter, matplotlib, plotly, shap, docker, testcontainers, e o pacote `pywin32`, específico de Windows).
+- ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
+- ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
+- **Cobertura de teste não cobre todo o código:** `pytest.ini` mede cobertura apenas de `src`, `util` e `database` (`--cov=src --cov=util --cov=database`). Os pacotes `domain/`, `processing/`, `ingestion/`, `validation/` e a nova `api/` não entram nesse cálculo — `api/` tem sua própria suíde dedicada com 99% de cobertura medida à parte (ver seção da API), mas `domain/`/`processing/`/`ingestion/`/`validation/` não tinham nenhum teste até esta revisão, que adicionou uma cobertura inicial de regressão em `tests/domain/` para os dois serviços afetados pelo item de padronização de RA acima. Ampliar `--cov` para esses pacotes (e sua cobertura de teste) é candidato a um próximo passo.
 
 ## 🗺️ Roadmap / Visão Futura
 

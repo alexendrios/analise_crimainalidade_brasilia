@@ -4,6 +4,8 @@ import pytest
 
 from util.padronizacao import (
     renomear_linha,
+    renomear_regioes_conhecidas,
+    MAPEAMENTO_REGIOES_ADMINISTRATIVAS,
     recriar_regiao_com_valor,
     remover_acentos,
     normalizar_colunas,
@@ -36,6 +38,107 @@ def test_renomear_linha_renomeia_registros_correspondentes():
     resultado = renomear_linha(df, "regiao", "Brasilia", "Plano Piloto")
 
     assert list(resultado["regiao"]) == ["Plano Piloto", "Ceilandia", "Plano Piloto"]
+
+
+# ============================================================
+# renomear_regioes_conhecidas (mapeamento mestre de variantes de RA)
+# ============================================================
+def test_renomear_regioes_conhecidas_coluna_inexistente():
+    df = pd.DataFrame({"regiao": ["A", "B"]})
+    with pytest.raises(ValueError, match="não existe"):
+        renomear_regioes_conhecidas(df, "coluna_fantasma")
+
+
+def test_renomear_regioes_conhecidas_aplica_mapeamento_padrao():
+    """
+    Cobre o cenário antes tratado por chamadas separadas a `renomear_linha`
+    em domain/violencia_mulher.py e domain/identificacao_crimes.py.
+    """
+    df = pd.DataFrame(
+        {
+            "regiao_administrativa": [
+                "SUDOESTE",
+                "SCIA E ESTRUTURAL",
+                "CEILANDIA",
+            ],
+            "valor": [1, 2, 3],
+        }
+    )
+
+    resultado = renomear_regioes_conhecidas(df, "regiao_administrativa")
+
+    assert list(resultado["regiao_administrativa"]) == [
+        "SUDOESTE/OCTOGONAL",
+        "SCIA/ESTRUTURAL",
+        "CEILANDIA",
+    ]
+    # não deve afetar outras colunas nem a ordem das linhas
+    assert list(resultado["valor"]) == [1, 2, 3]
+
+
+def test_renomear_regioes_conhecidas_aplica_variantes_feminicidio():
+    """
+    Cobre o cenário antes tratado por um `.replace({...})` inline em
+    ViolenciaMulherService.carregar_feminicidio.
+    """
+    df = pd.DataFrame(
+        {
+            "regiao_administrativa": [
+                "BRASILIA (PLANO PILOTO)",
+                "SIA",
+                "SOL NASCENTE/POR DO SOL",
+                "ARNIQUEIRA",
+                "GAMA",
+            ]
+        }
+    )
+
+    resultado = renomear_regioes_conhecidas(df, "regiao_administrativa")
+
+    assert list(resultado["regiao_administrativa"]) == [
+        "PLANO PILOTO",
+        "SIA (SETOR DE INDUSTRIA E ABASTECIMENTO)",
+        "POR DO SOL/SOL NASCENTE",
+        "ARNIQUEIRAS",
+        "GAMA",  # sem correspondência no mapa -> permanece intocado
+    ]
+
+
+def test_renomear_regioes_conhecidas_sem_correspondencia_mantem_df_intacto():
+    df = pd.DataFrame({"regiao_administrativa": ["CEILANDIA", "GAMA"]})
+
+    resultado = renomear_regioes_conhecidas(df, "regiao_administrativa")
+
+    assert list(resultado["regiao_administrativa"]) == ["CEILANDIA", "GAMA"]
+
+
+def test_renomear_regioes_conhecidas_aceita_mapeamento_customizado():
+    """Um serviço com uma regra verdadeiramente pontual pode passar seu
+    próprio dicionário, sem precisar alterar o mapeamento mestre."""
+    df = pd.DataFrame({"regiao_administrativa": ["FOO"]})
+
+    resultado = renomear_regioes_conhecidas(
+        df, "regiao_administrativa", mapeamento={"FOO": "BAR"}
+    )
+
+    assert list(resultado["regiao_administrativa"]) == ["BAR"]
+
+
+def test_mapeamento_regioes_administrativas_consolida_variantes_conhecidas():
+    """
+    Trava de regressão: garante que o mapeamento mestre continua contendo
+    todas as regras de negócio que antes estavam espalhadas por múltiplos
+    serviços de domínio (ver Observações e Pontos de Atenção no README).
+    """
+    esperado = {
+        "SUDOESTE": "SUDOESTE/OCTOGONAL",
+        "SCIA E ESTRUTURAL": "SCIA/ESTRUTURAL",
+        "BRASILIA (PLANO PILOTO)": "PLANO PILOTO",
+        "SIA": "SIA (SETOR DE INDUSTRIA E ABASTECIMENTO)",
+        "SOL NASCENTE/POR DO SOL": "POR DO SOL/SOL NASCENTE",
+        "ARNIQUEIRA": "ARNIQUEIRAS",
+    }
+    assert MAPEAMENTO_REGIOES_ADMINISTRATIVAS == esperado
 
 
 # ============================================================

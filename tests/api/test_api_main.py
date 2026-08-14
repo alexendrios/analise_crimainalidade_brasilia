@@ -17,6 +17,13 @@ def limpar_cache():
     forecast_service.limpar_cache()
 
 
+def test_raiz_endpoint():
+    resp = client.get("/")
+
+    assert resp.status_code == 200
+    assert "mensagem" in resp.json()
+
+
 def test_health_banco_ok():
     with patch("api.main.listar_tabelas", return_value=["violencia_contra_mulher_gold"]):
         resp = client.get("/health")
@@ -85,6 +92,12 @@ def test_dados_tabela_nao_materializada_retorna_503():
         resp = client.get("/gold/violencia_contra_mulher_gold/dados")
 
     assert resp.status_code == 503
+
+
+def test_dados_tabela_invalida_retorna_404():
+    resp = client.get("/gold/tabela_que_nao_existe/dados")
+
+    assert resp.status_code == 404
 
 
 def test_dados_tabela_sucesso_com_paginacao():

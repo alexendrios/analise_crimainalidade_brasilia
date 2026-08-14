@@ -2,7 +2,7 @@ import pandas as pd
 from ingestion.repository_adapter import Repository
 from util.padronizacao import (
     padronizar_regiao,
-    renomear_linha,
+    renomear_regioes_conhecidas,
     recriar_regiao_com_valor,
     normalizar_colunas,
 )
@@ -13,21 +13,15 @@ from validation.validator import validar_chaves
 class ViolenciaMulherService:
     @staticmethod
     def carregar_feminicidio():
-        return processar_dataset_base(
+        df = processar_dataset_base(
             df=Repository.load("feminicidio"),
             coluna_regiao="região_administrativa",
             nome_valor="casos_feminicidios",
             drop=["inserido_em"],
-        ).replace(
-            {
-                "regiao_administrativa": {
-                    "BRASILIA (PLANO PILOTO)": "PLANO PILOTO",
-                    "SIA": "SIA (SETOR DE INDUSTRIA E ABASTECIMENTO)",
-                    "SOL NASCENTE/POR DO SOL": "POR DO SOL/SOL NASCENTE",
-                    "ARNIQUEIRA": "ARNIQUEIRAS",
-                }
-            }
         )
+        # regras de negócio: mapeamento mestre de variantes de nome de RA
+        # (centralizado em util/padronizacao.py, ver MAPEAMENTO_REGIOES_ADMINISTRATIVAS)
+        return renomear_regioes_conhecidas(df, "regiao_administrativa")
 
     @staticmethod
     def carregar_crimes_contra_mulher():
@@ -48,14 +42,10 @@ class ViolenciaMulherService:
 
         df = df.rename(columns={"#_casos": "crimes_contra_mulher"})
 
-        # regras de negócio
-        df = renomear_linha(
-            df, "regiao_administrativa", "SCIA E ESTRUTURAL", "SCIA/ESTRUTURAL"
-        )
-        df = renomear_linha(
-            df, "regiao_administrativa", "SUDOESTE", "SUDOESTE/OCTOGONAL"
-        )
-            
+        # regras de negócio: mapeamento mestre de variantes de nome de RA
+        # (centralizado em util/padronizacao.py, ver MAPEAMENTO_REGIOES_ADMINISTRATIVAS)
+        df = renomear_regioes_conhecidas(df, "regiao_administrativa")
+
         df = recriar_regiao_com_valor(df, nome_regiao="VARJAO", coluna_regiao="regiao_administrativa", valor_padrao=0)
         df = recriar_regiao_com_valor(df, nome_regiao="LAGO NORTE", coluna_regiao="regiao_administrativa", valor_padrao=0)
 
