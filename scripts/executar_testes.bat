@@ -51,7 +51,14 @@ REM ============================================================
 echo [3/5] Executando testes automatizados...
 echo.
 
-call "venv\Scripts\python.exe" -m pytest
+if not exist "logs" (
+    mkdir "logs"
+)
+
+echo Salvando saida completa do pytest em logs\testes.log
+echo.
+
+powershell -NoProfile -ExecutionPolicy Bypass -File "scripts\executar_testes.ps1"
 
 set TEST_EXIT_CODE=%ERRORLEVEL%
 
