@@ -6,7 +6,9 @@
 >
 > **Implementação de item do roadmap — persistência do Prophet:** o item "persistir o modelo Prophet junto ao XGBoost em `models/`" foi implementado. `save_model_with_metadata` agora aceita um `prophet_model` opcional e salva o par como um único artefato "bundle"; `GET /previsao/crimes-contra-mulher` passa a servir por padrão a partir do bundle mais recente em disco (sem re-treinar), com fallback automático para treino quando não há artefato utilizável; um novo endpoint `POST /previsao/retrain` força o re-treino explícito. Detalhes em [Camada de Consumo (API)](#-camada-de-consumo-api--api). 16 novos testes adicionados (391 → 407 testes coletados), cobertura de `api/services/forecast_service.py` em 100%.
 >
-> **Revisão mais recente:** dashboard Streamlit implementado (séries temporais com **total consolidado + RAs selecionáveis** e média móvel, mapa de calor RA × ano, ranking, previsões e exploração das tabelas gold) e bug de variável de ambiente `POSTGRES_USERNAME` vs `POSTGRES_USER` em `tests/database/test_connection.py` corrigido — **466 testes, todos passando, 99,37% de cobertura**. Ver [Dashboard Interativo](#-dashboard-interativo-streamlit--dashboard) e [Qualidade e Testes](#-qualidade-e-testes).
+> **Revisão mais recente:** dashboard Streamlit implementado (séries temporais com **total consolidado + RAs selecionáveis** e média móvel, mapa de calor RA × ano, ranking, previsões e exploração das tabelas gold) e bug de variável de ambiente `POSTGRES_USERNAME` vs `POSTGRES_USER` em `tests/database/test_connection.py` corrigido — **486 testes, todos passando, 99,29% de cobertura**. Ver [Dashboard Interativo](#-dashboard-interativo-streamlit--dashboard) e [Qualidade e Testes](#-qualidade-e-testes).
+>
+> **Testes E2E e de carga da API:** além da suíte `pytest`, a API de consumo ganhou duas camadas de teste externas ao Python — uma suíte **E2E em Karate DSL (Gherkin/Cucumber)** com relatório **Allure** (`karate-tests/`) e uma suíte de **carga/performance em Gatling (Scala)** (`gatling-tests/`), que exercita o fluxo principal do dashboard sob rampa de usuários com asserções de taxa de sucesso (≥99%) e p95 (limite configurável). Ver [Testes E2E da API](#-testes-e2e-da-api-karate-dsl--cucumber--allure--karate-tests) e [Testes de Carga da API](#-testes-de-carga-da-api-gatling--gatling-tests).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -18,7 +20,7 @@
 
 O projeto coleta, padroniza e consolida séries históricas de criminalidade do Distrito Federal (fontes SSP-DF e dados populacionais do IBGE/GDF), organiza os dados em um **Data Lakehouse em camadas (Bronze → Silver → Gold)** e utiliza o resultado para treinar um modelo híbrido de previsão de séries temporais (Prophet + XGBoost) aplicado hoje a **crimes contra a mulher** por Região Administrativa (RA).
 
-Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashboard e sem API expostos no código atual — o fluxo é executado localmente via scripts Python (`src/main.py`).
+Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo é executado localmente via scripts Python (`src/main.py`); a camada de consumo (API + dashboard) e as suítes E2E/carga estão descritas nas seções ao final deste documento.
 
 ## 🧠 Diagrama de Arquitetura Lógica (estado atual)
 
@@ -116,7 +118,8 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 468 testes, todos passando, **99,35% de cobertura** em `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util`, limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 486 testes, todos passando, **99,29% de cobertura** em `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util`, limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes E2E / Carga da API** | `Karate DSL` (Cucumber/Allure), `Gatling` (Scala/Maven) | Suíte E2E dos endpoints da API em `karate-tests/` e teste de carga com rampa de usuários e asserções de sucesso/p95 em `gatling-tests/` (ver seções próprias) |
 | **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
 ### 🧩 Interações Principais (fluxo real)
@@ -143,6 +146,8 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 | `models/` | Modelos treinados (`.pkl`) e metadados (`_meta.json`) de cada execução |
 | `data/` | Camadas `bronze/`, `silver/`, `gold/` do lakehouse local (gerada em runtime; ignorada pelo Git, ver `.gitignore`) |
 | `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `domain`, `ingestion`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`) |
+| `karate-tests/` | Testes E2E da API (Karate DSL + Cucumber + Allure) — ver seção própria |
+| `gatling-tests/` | Testes de carga/performance da API (Gatling, Scala/Maven) — ver seção própria |
 | `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
 | `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
 
@@ -171,7 +176,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células), sem dashbo
 
 ## ✅ Qualidade e Testes
 
-- **466 testes** coletados (`pytest`), **todos passando** — **99,37% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). `validation/` é o único pacote de produção ainda fora do escopo de cobertura.
+- **486 testes** coletados (`pytest`), **todos passando** — **99,29% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). `validation/` é o único pacote de produção ainda fora do escopo de cobertura.
 - Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `test_report/coverage` (HTML).
 - Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
 
@@ -223,6 +228,10 @@ uvicorn api.main:app --reload --port 8000
 # 7. Abrir o dashboard interativo (requer a API do passo 6 no ar)
 streamlit run dashboard/app.py
 # Acesse em: http://localhost:8501
+
+# 8. Testes E2E (Karate) e de carga (Gatling) da API — requerem a API do passo 6 no ar
+cd karate-tests && mvn test                # E2E (relatório Allure em target/allure-results)
+cd ../gatling-tests && mvn gatling:test    # carga (relatório em target/gatling/<simulacao>/index.html)
 ```
 
 > ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`, `streamlit`, `plotly`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
@@ -260,7 +269,7 @@ api/
 
 **Estratégia de serving da API:** `GET /previsao/crimes-contra-mulher` tenta primeiro `analysis.data_analyzer.localizar_ultimo_modelo_bundle` para achar o bundle mais recente em `models/` e servir a previsão diretamente a partir dele (`fonte_modelo: "artefato"` na resposta, sem treinar nada). Se ainda não existir nenhum bundle utilizável (primeira execução, artefato corrompido ou metadados incompletos), a API treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente (`fonte_modelo: "retreino"`); se `persistir_modelo=true`, esse novo treino já é salvo como bundle, disponível para a próxima chamada. Para forçar um novo treino mesmo com um bundle já disponível (ex.: dados gold atualizados), use `POST /previsao/retrain`, que ignora o cache e qualquer artefato existente, treina do zero e sempre persiste o resultado. Um cache em memória de 30 min (`usar_cache`) evita repetir trabalho — seja servindo do artefato, seja re-treinando — a cada requisição idêntica.
 
-Testes: `tests/api/` (31 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade).
+Testes: `tests/api/` (47 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
 
 ## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
 
@@ -288,7 +297,38 @@ streamlit run dashboard/app.py
 
 A URL da API pode ser alterada na sidebar do próprio painel (padrão: `http://localhost:8000`).
 
-Testes: `tests/dashboard/` (56 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
+Testes: `tests/dashboard/` (74 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
+
+## 🔁 Testes E2E da API (Karate DSL + Cucumber + Allure — `karate-tests/`)
+
+Suíte de testes **end-to-end** da API de consumo, escrita em **Gherkin (Cucumber)** e executada com **Karate DSL**, com relatório **Allure**. Cobrem `GET /health`, `GET /`, os endpoints de gold (`/gold/tabelas`, `/gold/{tabela}/resumo`, `/gold/{tabela}/dados` com paginação/filtros) e de previsão (`GET /previsao/crimes-contra-mulher`, `GET /previsao/modelos`). O cenário `@retreino` (`POST /previsao/retrain`) treina e persiste um novo bundle do modelo e fica **excluído** por padrão (inclua com `mvn test "-Dkarate.options=--tags @retreino"`).
+
+```bash
+# Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
+cd karate-tests
+mvn test
+# Relatório Allure:
+allure generate target/allure-results -o target/allure-report
+```
+
+Base URL configurável via `mvn test -Dkarate.env=hml` (ver `karate-tests/README.md`). O baseUrl padrão é `http://localhost:8000`.
+
+## 🏋️ Testes de Carga da API (Gatling — `gatling-tests/`)
+
+Testes de **carga/performance** da API em **Scala** com **Gatling**, cobrindo o fluxo principal do dashboard (health, gold e previsões). Duas simulações:
+
+- `SmokeSimulation` — uma execução única de cada endpoint, para confirmar que a API responde antes da carga.
+- `ApiCargaSimulation` — rampa de `1` → `20` usuários/s durante 30s, seguida de 60s de carga constante, sobre uma tabela gold aleatória; falha o build se a taxa de sucesso ficar abaixo de **99%** ou o **p95** acima do limite (padrão **1000 ms**, configurável).
+
+```bash
+# Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
+cd gatling-tests
+mvn gatling:test                                       # carga (ApiCargaSimulation)
+mvn gatling:test -Dgatling.simulationClass=criminalidade.api.SmokeSimulation
+# Relatório HTML estático em target/gatling/<simulacao>/index.html
+```
+
+Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, `carga.usuariosIniciais`, `carga.usuariosFinais`, `carga.duracaoRampaSegundos`, `carga.duracaoCargaSegundos`, `carga.p95LimiteMs` — ver `gatling-tests/README.md`. A primeira execução registrada (`smoke.log`) falhou por **`Connection refused`** (API não estava no ar durante a rodada), não por bug de código.
 
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
@@ -298,7 +338,7 @@ Testes: `tests/dashboard/` (56 testes) — o app é exercitado via `AppTest` (`s
 - ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
 - ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
 - ✅ **`.env` não é mais rastreado pelo Git:** confirmado nesta revisão (`git ls-tree` não lista o arquivo) — o item antes pendente de `git rm --cached .env` já foi resolvido. Ainda assim, se alguma credencial real chegou a ser commitada antes dessa correção, ela permanece no histórico do repositório e deveria ter sido rotacionada por precaução.
-- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,35%** (468 testes). Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
+- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` — cobertura real medida nesta revisão: **99,29%** (486 testes). Único pacote de produção fora do escopo: `validation/`, ainda sem testes próprios.
 - ✅ **Bug de variável de ambiente em teste resolvido:** a fixture `env_valido` de `tests/database/test_connection.py` usava `POSTGRES_USERNAME`, divergente de `POSTGRES_USER` (código de produção e `.env.example`) — as 3 falhas só não apareciam com `.env` local. Corrigido para `POSTGRES_USER`; ver seção "✅ Qualidade e Testes".
 
 ## 🗺️ Roadmap / Visão Futura
@@ -324,3 +364,5 @@ Os itens abaixo **não existem no código atual** — são direções possíveis
 - ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.
 - ✅ **Prophet persistido junto ao XGBoost** — `GET /previsao/crimes-contra-mulher` já serve por padrão a partir do artefato ("bundle") salvo em `models/`, com `POST /previsao/retrain` como endpoint de retrain explícito. Ver seção "🌐 Camada de Consumo (API)" acima.
 - ✅ **Dashboard interativo (Streamlit/Plotly) implementado** — ver seção "📊 Dashboard Interativo" acima.
+- ✅ **Testes E2E da API (Karate DSL + Cucumber + Allure) implementados** — ver seção "🔁 Testes E2E da API" acima.
+- ✅ **Testes de carga/performance da API (Gatling) implementados** — ver seção "🏋️ Testes de Carga da API" acima.
