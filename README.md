@@ -293,7 +293,6 @@ Testes: `tests/dashboard/` (56 testes) — o app é exercitado via `AppTest` (`s
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
 - ✅ **Padronização de RA consolidada:** as variantes de nome de Região Administrativa (ex.: `SUDOESTE` → `SUDOESTE/OCTOGONAL`) antes eram tratadas por chamadas pontuais e duplicadas de `renomear_linha` em `domain/violencia_mulher.py` e `domain/identificacao_crimes.py`, mais um `.replace({...})` inline e independente em `ViolenciaMulherService.carregar_feminicidio`. Agora existe um único mapeamento mestre (`util.padronizacao.MAPEAMENTO_REGIOES_ADMINISTRATIVAS`, aplicado via `renomear_regioes_conhecidas`), usado pelos três pontos — qualquer nova variante encontrada no futuro deve ser adicionada só ali. Cobertura de teste nova em `tests/util/test_padronizacao.py` e `tests/domain/` (que antes não existiam).
-- **Full Refresh:** toda carga no Postgres recria a tabela (`if_exists="replace"`); não há carga incremental.
 - ✅ **Maturidade igual entre pipelines:** o pipeline Silver (`pipeline_busca_transformacao.py`) foi levado ao mesmo modelo do Gold — definição declarativa de `PipelineStep`s para os tratamentos independentes, executados em paralelo via `executar_pipeline` (com retry e timeout), preservando em sequência apenas as fases com dependência de dados (coleta → população → planilhas → carga).
 - ✅ **`src/main.py` executa as três etapas:** coleta/transformação, tabela gold e modelagem rodam em sequência por padrão — todo o fluxo tem cobertura de teste (incluindo o bloco `if __name__ == "__main__":`, coberto via `runpy`).
 - ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
@@ -325,4 +324,3 @@ Os itens abaixo **não existem no código atual** — são direções possíveis
 - ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.
 - ✅ **Prophet persistido junto ao XGBoost** — `GET /previsao/crimes-contra-mulher` já serve por padrão a partir do artefato ("bundle") salvo em `models/`, com `POST /previsao/retrain` como endpoint de retrain explícito. Ver seção "🌐 Camada de Consumo (API)" acima.
 - ✅ **Dashboard interativo (Streamlit/Plotly) implementado** — ver seção "📊 Dashboard Interativo" acima.
-- Autenticação/API key e rate limiting, caso a API passe a ser exposta publicamente.
