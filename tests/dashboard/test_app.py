@@ -24,6 +24,18 @@ DADOS = {
 
 RESUMO = {"tabela": "crimes_letais_gold", "linhas": 2, "colunas": 3, "nulos_total": 0}
 
+TABELA_IDADES = {"nome": "identificacao_crimes_contra_mulher_gold", "disponivel_no_banco": True}
+
+DADOS_IDADES = {
+    "tabela": "identificacao_crimes_contra_mulher_gold",
+    "total_linhas": 2,
+    "total_paginas": 1,
+    "registros": [
+        {"ano": 2020, "regiao_administrativa": "Taguatinga", "idade_vitima": 30, "idade_autor": 35, "crimes": 10},
+        {"ano": 2021, "regiao_administrativa": "Ceilândia", "idade_vitima": 28, "idade_autor": 40, "crimes": 20},
+    ],
+}
+
 PREVISAO = {
     "tabela_origem": "violencia_contra_mulher_gold",
     "coluna_alvo": "crimes_contra_mulher",
@@ -313,3 +325,121 @@ def test_app_modelos_persistidos_exibe_tabela():
 
     assert not at.exception
     assert any("bundle.pkl" in str(df.value.values) for df in at.dataframe)
+
+
+def test_app_serie_exclui_colunas_de_idade():
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA_IDADES]),
+        patch("dashboard.api_client.obter_dados", return_value=DADOS_IDADES),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    opcoes = at.selectbox(key="serie_coluna").options
+    assert "Idade da vítima" not in opcoes
+    assert "Idade do autor (suspeito)" not in opcoes
+    assert "Crimes" in opcoes
+
+
+def test_app_aba_idades_renderiza_histograma_e_resumo():
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA_IDADES]),
+        patch("dashboard.api_client.obter_dados", return_value=DADOS_IDADES),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    aba_idades = at.tabs[2]
+    assert len(aba_idades.get("plotly_chart")) >= 1
+    assert any("Idade da vítima" in str(df.value.values) for df in aba_idades.dataframe)
+
+
+def test_app_aba_idades_sem_colunas_de_idade_avisa_usuario():
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA]),
+        patch("dashboard.api_client.obter_dados", return_value=DADOS),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any("não possui as colunas de idade" in i.value for i in at.tabs[2].info)
+
+
+def test_app_aba_idades_sem_idades_validas_avisa_usuario():
+    dados_idades_zero = dict(DADOS_IDADES)
+    dados_idades_zero["registros"] = [
+        {"ano": 2020, "regiao_administrativa": "Taguatinga", "idade_vitima": 0, "idade_autor": 0, "crimes": 10},
+        {"ano": 2021, "regiao_administrativa": "Ceilândia", "idade_vitima": 0, "idade_autor": 0, "crimes": 20},
+    ]
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA_IDADES]),
+        patch("dashboard.api_client.obter_dados", return_value=dados_idades_zero),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any("idades válidas" in w.value for w in at.tabs[2].warning)
+    assert any("Registros válidos" in str(df.value.columns) for df in at.tabs[2].dataframe)
+
+
+def test_app_serie_categorica_oferece_meio_utilizado_e_motivacao():
+    dados = {
+        "tabela": "identificacao_crimes_contra_mulher_gold",
+        "total_linhas": 2,
+        "total_paginas": 1,
+        "registros": [
+            {"ano": 2020, "regiao_administrativa": "Taguatinga", "meio_utilizado": "ARMA DE FOGO", "motivacao": "CIUME", "crimes": 10},
+            {"ano": 2021, "regiao_administrativa": "Ceilândia", "meio_utilizado": "FISICA", "motivacao": "DISCUSSAO", "crimes": 20},
+        ],
+    }
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA_IDADES]),
+        patch("dashboard.api_client.obter_dados", return_value=dados),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+        at.selectbox(key="serie_modo").select("Contagem por categoria").run()
+
+    assert not at.exception
+    opcoes = at.selectbox(key="serie_coluna").options
+    assert "Meio utilizado" in opcoes
+    assert "Motivação" in opcoes
+
+
+def test_app_serie_categorica_renderiza_grafico():
+    dados = {
+        "tabela": "identificacao_crimes_contra_mulher_gold",
+        "total_linhas": 2,
+        "total_paginas": 1,
+        "registros": [
+            {"ano": 2020, "regiao_administrativa": "Taguatinga", "meio_utilizado": "ARMA DE FOGO", "motivacao": "CIUME", "crimes": 10},
+            {"ano": 2021, "regiao_administrativa": "Ceilândia", "meio_utilizado": "FISICA", "motivacao": "DISCUSSAO", "crimes": 20},
+        ],
+    }
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA_IDADES]),
+        patch("dashboard.api_client.obter_dados", return_value=dados),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+        at.selectbox(key="serie_modo").select("Contagem por categoria").run()
+        at.selectbox(key="serie_coluna").select("Motivação").run()
+
+    assert not at.exception
+    assert len(at.get("plotly_chart")) >= 1

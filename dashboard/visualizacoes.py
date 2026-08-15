@@ -81,6 +81,26 @@ def coluna_ano_disponivel(df: pd.DataFrame) -> Optional[str]:
     return None
 
 
+COLUNAS_IDADES = ("idade_vitima", "idade_autor")
+
+
+def colunas_valor_indicadores(df: pd.DataFrame) -> List[str]:
+    """Colunas numéricas utilizáveis como 'indicador', excluindo colunas de idade."""
+    return [col for col in colunas_numericas(df) if col not in COLUNAS_IDADES]
+
+
+def colunas_categoricas(df: pd.DataFrame) -> List[str]:
+    """Colunas não numéricas utilizáveis como 'categoria' na série temporal."""
+    coluna_ano = coluna_ano_disponivel(df)
+    return [
+        col
+        for col in df.columns
+        if col != COLUNA_REGIAO
+        and col != coluna_ano
+        and not pd.api.types.is_numeric_dtype(df[col])
+    ]
+
+
 def figura_serie_temporal(
     df: pd.DataFrame,
     coluna_valor: str,
@@ -136,6 +156,80 @@ def figura_serie_temporal(
         xaxis_title=str(coluna_ano),
         yaxis_title=rotulo_coluna(coluna_valor),
         legend_title=COLUNA_REGIAO.capitalize(),
+        height=480,
+        template="plotly_white",
+    )
+    return fig
+
+
+def figura_serie_temporal_categorica(
+    df: pd.DataFrame,
+    coluna_categorica: str,
+    ras: Optional[List[str]] = None,
+    janela_media_movel: int = 0,
+) -> go.Figure:
+    """
+    Série temporal da contagem de ocorrências por ano, segmentada por categoria.
+
+    Uma linha é desenhada por categoria (ex.: `meio_utilizado`, `motivacao`).
+    Quando `janela_media_movel > 1`, a média móvel é sobreposta a cada série.
+    """
+    coluna_ano = coluna_ano_disponivel(df)
+    if coluna_ano is None:
+        raise SemDadosParaGraficoError(
+            "Não há coluna de ano disponível para construir a série temporal."
+        )
+    if coluna_categorica not in df.columns:
+        raise SemDadosParaGraficoError(
+            "A tabela selecionada não possui a coluna categórica solicitada."
+        )
+
+    dados = df.copy()
+    if ras and COLUNA_REGIAO in dados.columns:
+        dados = dados[dados[COLUNA_REGIAO].isin(ras)]
+    dados = dados[dados[coluna_categorica].notna()]
+    dados[coluna_categorica] = dados[coluna_categorica].astype(str).str.strip()
+    dados = dados[dados[coluna_categorica] != ""]
+
+    if dados.empty:
+        raise SemDadosParaGraficoError(
+            "Não há registros com a categoria preenchida para construir a série temporal."
+        )
+
+    tabela = (
+        dados.groupby([coluna_ano, coluna_categorica])
+        .size()
+        .unstack(fill_value=0)
+        .sort_index()
+    )
+
+    fig = go.Figure()
+    for categoria in tabela.columns:
+        fig.add_trace(
+            go.Scatter(
+                x=tabela.index,
+                y=tabela[categoria],
+                mode="lines+markers",
+                name=str(categoria),
+            )
+        )
+        if janela_media_movel > 1:
+            media = tabela[categoria].rolling(janela_media_movel, min_periods=1).mean()
+            fig.add_trace(
+                go.Scatter(
+                    x=tabela.index,
+                    y=media,
+                    mode="lines",
+                    name=f"{categoria} — média móvel ({janela_media_movel})",
+                    line=dict(dash="dot"),
+                )
+            )
+
+    fig.update_layout(
+        title=f"Ocorrências por ano — {rotulo_coluna(coluna_categorica)}",
+        xaxis_title=str(coluna_ano),
+        yaxis_title="Número de ocorrências",
+        legend_title=rotulo_coluna(coluna_categorica),
         height=480,
         template="plotly_white",
     )
@@ -212,6 +306,61 @@ def figura_ranking_ra(df: pd.DataFrame, coluna_valor: str, ano: Optional[int] = 
         xaxis_title=rotulo_coluna(coluna_valor),
         yaxis_title="Região Administrativa",
         height=520,
+        template="plotly_white",
+    )
+    return fig
+
+
+def _idades_validas(df: pd.DataFrame, coluna: str) -> pd.Series:
+    """Idades válidas (> 0 e até 120 anos) de uma coluna de idade."""
+    valores = pd.to_numeric(df[coluna], errors="coerce").dropna()
+    return valores[(valores > 0) & (valores <= 120)]
+
+
+def figura_historico_idades(
+    df: pd.DataFrame,
+    coluna_vitima: str = "idade_vitima",
+    coluna_autor: str = "idade_autor",
+    bin_size: int = 5,
+) -> go.Figure:
+    """Histograma sobreposto das idades da vítima e do autor (suspeito).
+
+    Idades iguais a 0 (preenchidas quando o valor era desconhecido) e
+    superiores a 120 anos são descartadas do cálculo.
+    """
+    existentes = [col for col in (coluna_vitima, coluna_autor) if col in df.columns]
+    if not existentes:
+        raise SemDadosParaGraficoError(
+            "A tabela selecionada não possui as colunas de idade "
+            "(idade_vitima / idade_autor)."
+        )
+
+    fig = go.Figure()
+    for coluna in existentes:
+        valores = _idades_validas(df, coluna)
+        if valores.empty:
+            continue
+        fig.add_trace(
+            go.Histogram(
+                x=valores,
+                name=rotulo_coluna(coluna),
+                opacity=0.6,
+                xbins=dict(size=int(bin_size)),
+            )
+        )
+
+    if len(fig.data) == 0:
+        raise SemDadosParaGraficoError(
+            "Não há idades válidas (maiores que 0 e até 120 anos) para construir o histograma."
+        )
+
+    fig.update_layout(
+        title="Distribuição de idades — vítima × autor (suspeito)",
+        xaxis_title="Idade",
+        yaxis_title="Número de ocorrências",
+        barmode="overlay",
+        legend_title="Grupo",
+        height=480,
         template="plotly_white",
     )
     return fig

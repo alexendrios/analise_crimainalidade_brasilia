@@ -10,10 +10,17 @@ os gráficos com Plotly (`dashboard/visualizacoes.py`). Execução:
 A API deve estar no ar antes (uvicorn api.main:app --reload --port 8000).
 """
 
+import asyncio
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+# Evita ConnectionResetError (WinError 10054) do _ProactorBasePipeTransport ao
+# usar o event loop Proactor padrão do Windows. O Selector loop não sofre desse
+# problema quando o cliente derruba a conexão abruptamente.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 import pandas as pd
 import streamlit as st
@@ -29,13 +36,17 @@ from dashboard.api_client import (
     obter_resumo,
 )
 from dashboard.visualizacoes import (
+    COLUNAS_IDADES,
     SemDadosParaGraficoError,
     coluna_ano_disponivel,
+    colunas_categoricas,
     colunas_numericas,
     figura_heatmap_ra_ano,
+    figura_historico_idades,
     figura_previsao,
     figura_ranking_ra,
     figura_serie_temporal,
+    figura_serie_temporal_categorica,
     modelos_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
@@ -77,14 +88,27 @@ def _aba_series(base_url: str) -> None:
         st.info("A tabela selecionada ainda não foi materializada no banco.")
         return
 
-    colunas_valor = _colunas_valor(df)
-    if not colunas_valor:
-        st.info("A tabela selecionada não possui colunas numéricas para série temporal.")
+    modo = st.selectbox(
+        "Modo de análise",
+        ["Indicador numérico", "Contagem por categoria"],
+        key="serie_modo",
+    )
+    categorico = modo == "Contagem por categoria"
+
+    if categorico:
+        colunas = colunas_categoricas(df)
+        rotulo = "Categoria"
+    else:
+        colunas = [c for c in _colunas_valor(df) if c not in COLUNAS_IDADES]
+        rotulo = "Coluna (indicador)"
+    if not colunas:
+        if categorico:
+            st.info("A tabela selecionada não possui colunas categóricas para série temporal.")
+        else:
+            st.info("A tabela selecionada não possui colunas numéricas para série temporal.")
         return
 
-    coluna_valor = st.selectbox(
-        "Coluna (indicador)", colunas_valor, key="serie_coluna", format_func=rotulo_coluna
-    )
+    coluna = st.selectbox(rotulo, colunas, key="serie_coluna", format_func=rotulo_coluna)
     if "regiao_administrativa" in df.columns:
         ras_disponiveis = sorted(df["regiao_administrativa"].dropna().astype(str).unique())
         ras = st.multiselect(
@@ -98,9 +122,14 @@ def _aba_series(base_url: str) -> None:
     )
 
     try:
-        fig = figura_serie_temporal(
-            df, coluna_valor, ras=ras, janela_media_movel=janela
-        )
+        if categorico:
+            fig = figura_serie_temporal_categorica(
+                df, coluna, ras=ras, janela_media_movel=janela
+            )
+        else:
+            fig = figura_serie_temporal(
+                df, coluna, ras=ras, janela_media_movel=janela
+            )
         st.plotly_chart(fig, width="stretch")
     except SemDadosParaGraficoError as exc:
         st.warning(str(exc))
@@ -139,6 +168,62 @@ def _aba_mapa(base_url: str) -> None:
             st.plotly_chart(figura_ranking_ra(df, coluna_valor, ano=ano), width="stretch")
         except SemDadosParaGraficoError as exc:
             st.warning(str(exc))
+
+
+def _resumo_idades(df: pd.DataFrame, colunas: list) -> pd.DataFrame:
+    """Resumo estatístico das idades válidas (vítima/autor)."""
+    linhas = []
+    for coluna in colunas:
+        valores = pd.to_numeric(df[coluna], errors="coerce").dropna()
+        valores = valores[(valores > 0) & (valores <= 120)]
+        if valores.empty:
+            linhas.append({"Atributo": rotulo_coluna(coluna), "Registros válidos": 0})
+            continue
+        linhas.append(
+            {
+                "Atributo": rotulo_coluna(coluna),
+                "Registros válidos": int(valores.count()),
+                "Média": round(float(valores.mean()), 1),
+                "Mediana": float(valores.median()),
+                "Mínimo": int(valores.min()),
+                "Máximo": int(valores.max()),
+            }
+        )
+    return pd.DataFrame(linhas)
+
+
+def _aba_idades(base_url: str) -> None:
+    st.subheader("Idades — Vítima × Autor (suspeito)")
+    tabelas = [t["nome"] for t in listar_tabelas(base_url)]
+    if not tabelas:
+        st.warning("Nenhuma tabela gold encontrada na API.")
+        return
+
+    tabela = st.selectbox("Tabela gold", tabelas, key="idades_tabela", format_func=rotulo_tabela)
+    df = _carregar_tabela_completa(base_url, tabela)
+    if df.empty:
+        st.info("A tabela selecionada ainda não foi materializada no banco.")
+        return
+
+    colunas_idade = [col for col in COLUNAS_IDADES if col in df.columns]
+    if not colunas_idade:
+        st.info(
+            "A tabela selecionada não possui as colunas de idade "
+            "(idade_vitima / idade_autor)."
+        )
+        return
+
+    bin_size = st.slider(
+        "Largura dos bins (anos)", min_value=1, max_value=10, value=5, key="idades_bin"
+    )
+
+    try:
+        st.plotly_chart(figura_historico_idades(df, bin_size=bin_size), width="stretch")
+    except SemDadosParaGraficoError as exc:
+        st.warning(str(exc))
+
+    st.markdown("### Resumo")
+    st.dataframe(_resumo_idades(df, colunas_idade), width="stretch")
 
 
 def _aba_previsoes(base_url: str) -> None:
@@ -239,8 +324,8 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_series, aba_mapa, aba_previsoes, aba_tabelas = st.tabs(
-        ["Séries Temporais", "Mapa de Calor", "Previsões", "Tabelas"]
+    aba_series, aba_mapa, aba_idades, aba_previsoes, aba_tabelas = st.tabs(
+        ["Séries Temporais", "Mapa de Calor", "Idades", "Previsões", "Tabelas"]
     )
 
     try:
@@ -248,6 +333,8 @@ def main() -> None:
             _aba_series(base_url)
         with aba_mapa:
             _aba_mapa(base_url)
+        with aba_idades:
+            _aba_idades(base_url)
         with aba_previsoes:
             _aba_previsoes(base_url)
         with aba_tabelas:

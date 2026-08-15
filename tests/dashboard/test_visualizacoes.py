@@ -3,13 +3,18 @@ import plotly.graph_objects as go
 import pytest
 
 from dashboard.visualizacoes import (
+    COLUNAS_IDADES,
     SemDadosParaGraficoError,
     coluna_ano_disponivel,
+    colunas_categoricas,
     colunas_numericas,
+    colunas_valor_indicadores,
     figura_heatmap_ra_ano,
+    figura_historico_idades,
     figura_previsao,
     figura_ranking_ra,
     figura_serie_temporal,
+    figura_serie_temporal_categorica,
     modelos_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
@@ -187,3 +192,110 @@ def test_modelos_para_dataframe_achata_metricas():
 def test_modelos_para_dataframe_sem_metricas_nao_quebra():
     df = modelos_para_dataframe([{"arquivo": "x.pkl"}])
     assert df.iloc[0]["mae"] is None
+
+
+def test_colunas_valor_indicadores_exclui_idades():
+    df = pd.DataFrame(
+        {"ano": [2020], "idade_vitima": [30], "idade_autor": [35], "crimes": [5]}
+    )
+    assert colunas_valor_indicadores(df) == ["ano", "crimes"]
+
+
+def test_figura_historico_idades_gera_dois_traces():
+    df = pd.DataFrame(
+        {
+            "idade_vitima": [0, 25, 30, 40, 45],
+            "idade_autor": [0, 30, 35, 50, 0],
+        }
+    )
+    fig = figura_historico_idades(df)
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data) == 2
+    nomes = {t.name for t in fig.data}
+    assert nomes == {"Idade da vítima", "Idade do autor (suspeito)"}
+
+
+def test_figura_historico_idades_descarta_idade_zero():
+    df = pd.DataFrame({"idade_vitima": [0, 0, 0], "idade_autor": [0, 0, 0]})
+    with pytest.raises(SemDadosParaGraficoError, match="idades válidas"):
+        figura_historico_idades(df)
+
+
+def test_figura_historico_idades_sem_colunas_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="colunas de idade"):
+        figura_historico_idades(pd.DataFrame({"ano": [2020]}))
+
+
+def test_figura_historico_idades_apenas_coluna_de_vitima():
+    df = pd.DataFrame({"idade_vitima": [25, 30], "idade_autor": [0, 0]})
+    fig = figura_historico_idades(df)
+    assert len(fig.data) == 1
+    assert fig.data[0].name == "Idade da vítima"
+
+
+def test_colunas_categoricas_identifica_nao_numericas():
+    df = pd.DataFrame(
+        {
+            "ano": [2020, 2020],
+            "regiao_administrativa": ["Taguatinga", "Ceilândia"],
+            "meio_utilizado": ["ARMA DE FOGO", "FISICA"],
+            "motivacao": ["CIUME", "CIUME"],
+            "crimes": [1, 2],
+        }
+    )
+    assert colunas_categoricas(df) == ["meio_utilizado", "motivacao"]
+
+
+def test_figura_serie_temporal_categorica_conta_por_ano_e_categoria():
+    df = pd.DataFrame(
+        {
+            "ano": [2020, 2020, 2021, 2021, 2021],
+            "meio_utilizado": ["ARMA DE FOGO", "FISICA", "ARMA DE FOGO", "ARMA DE FOGO", "FISICA"],
+        }
+    )
+    fig = figura_serie_temporal_categorica(df, "meio_utilizado")
+    assert isinstance(fig, go.Figure)
+    assert {t.name for t in fig.data} == {"ARMA DE FOGO", "FISICA"}
+    trace_arma = next(t for t in fig.data if t.name == "ARMA DE FOGO")
+    assert list(trace_arma.y) == [1, 2]  # contagem por ano (2020, 2021)
+
+
+def test_figura_serie_temporal_categorica_filtra_ra():
+    df = pd.DataFrame(
+        {
+            "ano": [2020, 2020, 2021],
+            "regiao_administrativa": ["Taguatinga", "Ceilândia", "Ceilândia"],
+            "motivacao": ["CIUME", "DISCUSSAO", "DISCUSSAO"],
+        }
+    )
+    fig = figura_serie_temporal_categorica(df, "motivacao", ras=["Ceilândia"])
+    nomes = [t.name for t in fig.data]
+    assert "CIUME" not in nomes
+    assert "DISCUSSAO" in nomes
+
+
+def test_figura_serie_temporal_categorica_sem_ano_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="coluna de ano"):
+        figura_serie_temporal_categorica(pd.DataFrame({"meio_utilizado": ["x"]}), "meio_utilizado")
+
+
+def test_figura_serie_temporal_categorica_sem_coluna_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="coluna categórica"):
+        figura_serie_temporal_categorica(pd.DataFrame({"ano": [2020]}), "motivacao")
+
+
+def test_figura_serie_temporal_categorica_sem_registros_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="categoria preenchida"):
+        figura_serie_temporal_categorica(pd.DataFrame({"ano": [2020], "motivacao": [None]}), "motivacao")
+
+
+def test_figura_serie_temporal_categorica_media_movel_dobra_traces():
+    df = pd.DataFrame(
+        {
+            "ano": [2020, 2020, 2021, 2021],
+            "meio_utilizado": ["ARMA DE FOGO", "ARMA DE FOGO", "FISICA", "FISICA"],
+        }
+    )
+    fig = figura_serie_temporal_categorica(df, "meio_utilizado", janela_media_movel=2)
+    assert len(fig.data) == 4  # 2 categorias + 2 médias móveis
+    assert any("média móvel" in t.name for t in fig.data)
