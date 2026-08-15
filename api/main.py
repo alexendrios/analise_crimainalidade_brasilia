@@ -12,6 +12,8 @@ Execução local:
 Documentação interativa: http://localhost:8000/docs
 """
 
+import asyncio
+import sys
 from datetime import datetime
 
 from fastapi import FastAPI
@@ -23,6 +25,12 @@ from database.repository.repository import listar_tabelas
 from util.log import logs
 
 logger = logs()
+
+# Evita ConnectionResetError (WinError 10054) do _ProactorBasePipeTransport ao
+# usar o event loop Proactor padrão do Windows. O Selector loop não sofre desse
+# problema quando o cliente derruba a conexão abruptamente.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 app = FastAPI(
     title="API - Criminalidade Brasília/DF",

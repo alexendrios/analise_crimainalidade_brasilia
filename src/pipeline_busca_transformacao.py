@@ -1,4 +1,5 @@
 # src/pipeline_busca_transformacao.py
+from pathlib import Path
 from util.extrator_zip import arquivos_zip_execucao
 from util.leitor_excel import processar_populacao, processar_crimes
 from src.busca import coletar_dados_
@@ -30,11 +31,18 @@ from src.tratamento_crimes import (
 )
 from database.load_csvs import salvar_tabela
 from database.connection import close_engine
-from pathlib import Path
+from src.core.pipeline_step import PipelineStep
+from src.core.executor import executar_pipeline
 from util.log import logs
 import time
 
 logger = logs()
+
+PASTA_BRONZE_CSV = "./data/bronze/csv"
+PASTA_SILVER_OUTPUT = "./data/silver/output"
+PASTA_BRONZE_PLANILHA = Path("./data/bronze/planilha")
+PASTA_BRONZE_CSV_DIR = Path(PASTA_BRONZE_CSV)
+TIMEOUT_TRATAMENTO = 900
 
 
 def log_tempo_inicio(func_name):
@@ -50,151 +58,219 @@ def log_tempo_fim(func_name, start_time):
     )
 
 
-def busca_transformacao_dados():
+# 🔹 definição declarativa dos tratamentos independentes (executados em paralelo)
+TRATAMENTOS = [
+    PipelineStep(
+        "crimes_contra_mulher",
+        lambda: tratar_crimes_contra_mulher(
+            f"{PASTA_BRONZE_CSV}/crimes-contra-mulher.csv",
+            f"{PASTA_SILVER_OUTPUT}/crimes-contra-mulher_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "feminicidio",
+        lambda: tratar_feminicidio(
+            f"{PASTA_BRONZE_CSV}/feminicidio.csv",
+            f"{PASTA_SILVER_OUTPUT}/feminicidio_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "desaparecidos_idade_sexo",
+        lambda: tratar_desaparecidos_idade_sexo(
+            f"{PASTA_BRONZE_CSV}/desaparecimento-idade-sexo.csv",
+            f"{PASTA_SILVER_OUTPUT}/desaparecidos_idade_sexo_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "desaparecidos_localizados",
+        lambda: tratar_desaparecidos_localizados(
+            f"{PASTA_BRONZE_CSV}/desaparecimento-localizados.csv",
+            f"{PASTA_SILVER_OUTPUT}/desaparecimento-localizados_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "desaparecidos_regiao",
+        lambda: tratar_desaparecidos_regiao(
+            f"{PASTA_BRONZE_CSV}/desaparecimento-regiao.csv",
+            f"{PASTA_SILVER_OUTPUT}/desaparecimento-regiao_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "furto_veiculo",
+        lambda: tratar_furto_veiculo(
+            f"{PASTA_BRONZE_CSV}/furto-em-veiculo.csv",
+            f"{PASTA_SILVER_OUTPUT}/furto_em_veiculo_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "homicidio",
+        lambda: tratar_homicidio(
+            f"{PASTA_BRONZE_CSV}/homicidio.csv",
+            f"{PASTA_SILVER_OUTPUT}/homicidio_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "violencia_idosos",
+        lambda: tratar_violencia_idosos(
+            f"{PASTA_BRONZE_CSV}/idosos_7_anos.csv",
+            [
+                f"{PASTA_SILVER_OUTPUT}/idosos_tabela4.csv",
+                f"{PASTA_SILVER_OUTPUT}/idosos_tabela5.csv",
+            ],
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "crimes_idosos_ranking",
+        lambda: tratar_crimes_idosos_ranking(
+            f"{PASTA_BRONZE_CSV}/idosos_2016.csv",
+            f"{PASTA_SILVER_OUTPUT}/idosos_2016_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "crimes_idosos_mensais",
+        lambda: crimes_idosos_por_mes(
+            f"{PASTA_BRONZE_CSV}/idosos_mensais.csv",
+            ["registro", "fato"],
+            f"{PASTA_SILVER_OUTPUT}/idosos_mensais_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "injuria_racial",
+        lambda: tratar_injuria_racial_por_regiao(
+            f"{PASTA_BRONZE_CSV}/injuria-racial.csv",
+            f"{PASTA_SILVER_OUTPUT}/injuria_racial_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "latrocinio",
+        lambda: tratar_latrocinio_por_regiao(
+            f"{PASTA_BRONZE_CSV}/latrocinio.csv",
+            f"{PASTA_SILVER_OUTPUT}/latrocinio_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "lesao_corporal_morte_regiao",
+        lambda: tratar_lesao_corporal_morte_por_regiao(
+            f"{PASTA_BRONZE_CSV}/lesao-corporal-morte.csv",
+            f"{PASTA_SILVER_OUTPUT}/lesao_corporal_morte_tratada.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "lesao_corporal_morte_total",
+        lambda: tratar_lesao_corporal_morte(
+            f"{PASTA_BRONZE_CSV}/lesao-corporal-morte.csv",
+            f"{PASTA_SILVER_OUTPUT}/lesao_corporal_morte_total_tratada.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "racismo",
+        lambda: tratar_racismo(
+            f"{PASTA_BRONZE_CSV}/racismo.csv",
+            f"{PASTA_SILVER_OUTPUT}/racismo_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "roubo_pedestre",
+        lambda: tratar_roubo_pedestre(
+            f"{PASTA_BRONZE_CSV}/roubo-a-transeunte.csv",
+            f"{PASTA_SILVER_OUTPUT}/roubo-a-transeunte_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "roubo_veiculo",
+        lambda: tratar_roubo_veiculo(
+            f"{PASTA_BRONZE_CSV}/roubo-de-veiculo.csv",
+            f"{PASTA_SILVER_OUTPUT}/roubo_veiculo_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "roubo_comercio",
+        lambda: roubo_comercio(
+            f"{PASTA_BRONZE_CSV}/roubo-em-comercio.csv",
+            f"{PASTA_SILVER_OUTPUT}/roubo_comercio.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+    PipelineStep(
+        "roubo_transporte_coletivo",
+        lambda: roubo_transporte_coletivo(
+            f"{PASTA_BRONZE_CSV}/roubo-em-transporte-coletivo.csv",
+            f"{PASTA_SILVER_OUTPUT}/roubo_transporte_coletivo_tratado.csv",
+        ),
+        timeout=TIMEOUT_TRATAMENTO,
+    ),
+]
+
+
+def _fase_coleta():
+    start = log_tempo_inicio("Estágio 1 - Coleta de Dados")
+    coletar_dados_()
+    arquivos_zip_execucao()
+    log_tempo_fim("Coleta de Dados", start)
+
+
+def _fase_populacao():
+    start = log_tempo_inicio("Estágio 2 - Processamento População")
+    processar_populacao()
+    obter_dados_ra_populacao()
+    analisar_populacao()
+    tratar_populacao_regiao_administrativa(
+        f"{PASTA_BRONZE_CSV}/ra_df_populacao.csv",
+        f"{PASTA_SILVER_OUTPUT}/ra_df_populacao_tratado.csv",
+    )
+    log_tempo_fim("Tratamento População ", start)
+
+
+def _fase_planilhas():
+    start = log_tempo_inicio(
+        "Estágio 3 - Processamento Crimes - Transformação de Planilha em CSV"
+    )
+    PASTA_BRONZE_CSV_DIR.mkdir(parents=True, exist_ok=True)  # garante que a pasta exista
+    processar_crimes(PASTA_BRONZE_PLANILHA, PASTA_BRONZE_CSV_DIR)
+    log_tempo_fim("Processamento Crimes", start)
+
+
+def _fase_carga():
+    start = log_tempo_inicio("Estágio 8 - Carga de Dados no Banco")
+    try:
+        salvar_tabela()
+    finally:
+        close_engine()
+    log_tempo_fim("Carga de Dados no Banco", start)
+
+
+def busca_transformacao_dados(max_workers: int = 6):
     pipeline_start = log_tempo_inicio("Pipeline Completo")
 
     try:
-        # Coleta de dados
-        start = log_tempo_inicio("Estágio 1 - Coleta de Dados")
-        coletar_dados_()
-        arquivos_zip_execucao()
-        log_tempo_fim("Coleta de Dados", start)
+        # 📥 fases sequenciais (possuem dependência de dados entre si)
+        _fase_coleta()
+        _fase_populacao()
+        _fase_planilhas()
 
-        # Processamento de população
-        start = log_tempo_inicio("Estágio 2 - Processamento População")
-        processar_populacao()
-        obter_dados_ra_populacao()
-        analisar_populacao()
-        tratar_populacao_regiao_administrativa(
-            "./data/bronze/csv/ra_df_populacao.csv",
-            "./data/silver/output/ra_df_populacao_tratado.csv",
-        )
-        log_tempo_fim("Tratamento População ", start)
+        # ⚡ tratamentos independentes executados em paralelo (declarativo)
+        start = log_tempo_inicio("Estágios 4 a 7 - Tratamentos de Crimes")
+        executar_pipeline("silver", TRATAMENTOS, max_workers=max_workers)
+        log_tempo_fim("Tratamentos de Crimes", start)
 
-        # Processamento de crimes
-        start = log_tempo_inicio(
-            "Estágio 3 - Processamento Crimes - Tranformação de Planilha em CSV"
-        )
-        caminho_planilhas = Path("./data/bronze/planilha")
-        caminho_saida = Path("./data/bronze/csv")
-        caminho_saida.mkdir(parents=True, exist_ok=True)  # garante que a pasta exista
-        processar_crimes(caminho_planilhas, caminho_saida)
-        log_tempo_fim("Processamento Crimes", start)
-
-        # Crimes contra mulher
-        start = log_tempo_inicio("Estágio 4 - Crimes contra Mulher")
-        tratar_crimes_contra_mulher(
-            "./data/bronze/csv/crimes-contra-mulher.csv",
-            "./data/silver/output/crimes-contra-mulher_tratado.csv",
-        )
-        log_tempo_fim("Crimes contra Mulher", start)
-
-        # Feminicídio
-        start = log_tempo_inicio("Estágio 5 - Feminicídio")
-        tratar_feminicidio(
-            "./data/bronze/csv/feminicidio.csv",
-            "./data/silver/output/feminicidio_tratado.csv",
-        )
-        log_tempo_fim("Feminicídio", start)
-
-        # Desaparecidos
-        for desc in [
-            (
-                "desaparecimento-idade-sexo.csv",
-                "desaparecidos_idade_sexo_tratado.csv",
-                tratar_desaparecidos_idade_sexo,
-            ),
-            (
-                "desaparecimento-localizados.csv",
-                "desaparecimento-localizados_tratado.csv",
-                tratar_desaparecidos_localizados,
-            ),
-            (
-                "desaparecimento-regiao.csv",
-                "desaparecimento-regiao_tratado.csv",
-                tratar_desaparecidos_regiao,
-            ),
-        ]:
-            start = log_tempo_inicio(f"Estágio 6 - Tratamento {desc[0]}")
-            desc[2](f"./data/bronze/csv/{desc[0]}", f"./data/silver/output/{desc[1]}")
-            log_tempo_fim(f"Tratamento {desc[0]}", start)
-
-        # Furto e roubo
-        for arquivo_entrada, arquivo_saida, func in [
-            (
-                "furto-em-veiculo.csv",
-                "furto_em_veiculo_tratado.csv",
-                tratar_furto_veiculo,
-            ),
-            ("homicidio.csv", "homicidio_tratado.csv", tratar_homicidio),
-            # correto:
-            (
-                "idosos_7_anos.csv",
-                [
-                    "./data/silver/output/idosos_tabela4.csv",
-                    "./data/silver/output/idosos_tabela5.csv",
-                ],
-                tratar_violencia_idosos,
-            ),
-            (
-                "idosos_2016.csv",
-                "idosos_2016_tratado.csv",
-                tratar_crimes_idosos_ranking,
-            ),
-            (
-                "idosos_mensais.csv",
-                "idosos_mensais_tratado.csv",
-                lambda inp, out: crimes_idosos_por_mes(inp, ["registro", "fato"], out),
-            ),
-            (
-                "injuria-racial.csv",
-                "injuria_racial_tratado.csv",
-                tratar_injuria_racial_por_regiao,
-            ),
-            ("latrocinio.csv", "latrocinio_tratado.csv", tratar_latrocinio_por_regiao),
-            (
-                "lesao-corporal-morte.csv",
-                "lesao_corporal_morte_tratada.csv",
-                tratar_lesao_corporal_morte_por_regiao,
-            ),
-            (
-                "lesao-corporal-morte.csv",
-                "lesao_corporal_morte_total_tratada.csv",
-                tratar_lesao_corporal_morte,
-            ),
-            ("racismo.csv", "racismo_tratado.csv", tratar_racismo),
-            (
-                "roubo-a-transeunte.csv",
-                "roubo-a-transeunte_tratado.csv",
-                tratar_roubo_pedestre,
-            ),
-            ("roubo-de-veiculo.csv", "roubo_veiculo_tratado.csv", tratar_roubo_veiculo),
-            ("roubo-em-comercio.csv", "roubo_comercio.csv", roubo_comercio),
-            (
-                "roubo-em-transporte-coletivo.csv",
-                "roubo_transporte_coletivo_tratado.csv",
-                roubo_transporte_coletivo,
-            ),
-        ]:
-            start = log_tempo_inicio(f"Estagio 7 - Tratamento {arquivo_entrada}")
-
-            # Se for lista ou tupla, passa direto
-            if isinstance(arquivo_saida, (list, tuple)):
-                caminhos_saida = arquivo_saida
-            else:
-                caminhos_saida = f"./data/silver/output/{arquivo_saida}"
-
-            func(f"./data/bronze/csv/{arquivo_entrada}", caminhos_saida)
-            log_tempo_fim(f"Tratamento {arquivo_entrada}", start)
-
-        # Carregar dados no banco
-        start = log_tempo_inicio("Estágio 8 - Carga de Dados no Banco")
-        try:
-            salvar_tabela()
-        finally:
-            close_engine()
-
-        log_tempo_fim("Carga de Dados no Banco", start)
+        _fase_carga()
 
         logger.info("Pipeline finalizado com sucesso!")
 

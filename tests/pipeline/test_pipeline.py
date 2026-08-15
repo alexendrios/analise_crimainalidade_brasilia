@@ -1,7 +1,11 @@
 from unittest.mock import patch, DEFAULT
 import pandas as pd
 
-from src.pipeline_busca_transformacao import busca_transformacao_dados
+from src.pipeline_busca_transformacao import (
+    busca_transformacao_dados,
+    TRATAMENTOS,
+)
+from src.core.pipeline_step import PipelineStep
 
 MODULO = "src.pipeline_busca_transformacao"
 
@@ -79,3 +83,25 @@ def test_pipeline_cobre_bloco_except():
 
         # etapas posteriores não devem ter sido chamadas
         mocks["salvar_tabela"].assert_not_called()
+
+
+def test_tratamentos_sao_declarativos_e_com_nomes_unicos():
+    """Paridade com o Gold: cada tratamento Silver é um PipelineStep declarativo."""
+    assert TRATAMENTOS
+    assert all(isinstance(step, PipelineStep) for step in TRATAMENTOS)
+    nomes = [step.nome for step in TRATAMENTOS]
+    assert len(nomes) == len(set(nomes))
+
+
+def test_busca_transformacao_usa_executor_paralelo_nos_tratamentos():
+    """Paridade com o Gold: executar_pipeline recebe os TRATAMENTOS e max_workers."""
+    with (
+        patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}),
+        patch(f"{MODULO}.executar_pipeline") as mock_exec,
+    ):
+        busca_transformacao_dados(max_workers=4)
+
+        mock_exec.assert_called_once()
+        args, kwargs = mock_exec.call_args
+        assert args[1] == TRATAMENTOS
+        assert kwargs["max_workers"] == 4
