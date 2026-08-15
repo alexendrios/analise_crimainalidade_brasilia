@@ -32,3 +32,6 @@ Thumbs.db
 
 test_report/
 test_report/*
+
+# Testes E2E (Karate/Maven)
+karate-tests/target/
