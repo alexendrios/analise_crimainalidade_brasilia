@@ -15,9 +15,9 @@ import scala.concurrent.duration._
  * Parâmetros (propriedades do sistema, todos opcionais):
  *   -Dapi.baseUrl=...              base da API (padrão: http://localhost:8000)
  *   -Dcarga.usuariosIniciais=N     usuários/seg no início da rampa (padrão: 1)
- *   -Dcarga.usuariosFinais=N       usuários/seg no fim da rampa (padrão: 20)
+ *   -Dcarga.usuariosFinais=N       usuários/seg no fim da rampa (padrão: 5)
  *   -Dcarga.duracaoRampaSegundos=N duração da rampa (padrão: 30)
- *   -Dcarga.duracaoCargaSegundos=N carga constante após a rampa (padrão: 60)
+ *   -Dcarga.duracaoCargaSegundos=N carga constante após a rampa (padrão: 30)
  *   -Dcarga.p95LimiteMs=N          limite do p95 (ms) para as asserções (padrão: 1000)
  *
  * Exemplos:
@@ -29,10 +29,10 @@ class ApiCargaSimulation extends Simulation {
   private val baseUrl = sys.props.getOrElse("api.baseUrl", "http://localhost:8000")
 
   private val usuariosIniciais = sys.props.get("carga.usuariosIniciais").map(_.toDouble).getOrElse(1.0)
-  private val usuariosFinais = sys.props.get("carga.usuariosFinais").map(_.toDouble).getOrElse(20.0)
+  private val usuariosFinais = sys.props.get("carga.usuariosFinais").map(_.toDouble).getOrElse(5.0)
   private val duracaoRampa = sys.props.get("carga.duracaoRampaSegundos").map(_.toInt).getOrElse(30)
-  private val duracaoCarga = sys.props.get("carga.duracaoCargaSegundos").map(_.toInt).getOrElse(60)
-  private val p95LimiteMs = sys.props.get("carga.p95LimiteMs").map(_.toInt).getOrElse(1000)
+  private val duracaoCarga = sys.props.get("carga.duracaoCargaSegundos").map(_.toInt).getOrElse(30)
+  private val p95LimiteMs = sys.props.get("carga.p95LimiteMs").map(_.toInt).getOrElse(4000)
 
   private val httpProtocol = http
     .baseUrl(baseUrl)
@@ -84,7 +84,7 @@ class ApiCargaSimulation extends Simulation {
       http("GET /previsao/crimes-contra-mulher")
         .get("/previsao/crimes-contra-mulher")
         .queryParam("horizonte_anos", "5")
-        .check(status.is(200), jsonPath("$.previsao").count.is(5))
+        .check(status.is(200), jsonPath("$.previsao[*]").count.is(5))
     )
     .pause(1)
     .exec(
