@@ -2,6 +2,7 @@ import os
 from contextlib import ExitStack
 from unittest.mock import patch
 
+import pytest
 from streamlit.testing.v1 import AppTest
 
 from dashboard.api_client import ApiError
@@ -92,6 +93,17 @@ def _pads():
         patch("dashboard.api_client.listar_modelos", return_value=[]),
         patch("dashboard.api_client.health", return_value={"status": "ok", "database": "ok"}),
     ]
+
+
+@pytest.fixture(autouse=True)
+def _cache_da_tabela_limpo():
+    """O AppTest executa app.py como módulo próprio, então a limpeza precisa
+    ser global: st.cache_data.clear() alcança o decorator usado pelo script."""
+    import streamlit as st
+
+    st.cache_data.clear()
+    yield
+    st.cache_data.clear()
 
 
 def _entrar(pads):
@@ -388,7 +400,7 @@ def test_app_aba_idades_renderiza_histograma_e_resumo():
         at = _rodar()
 
     assert not at.exception
-    aba_idades = at.tabs[2]
+    aba_idades = at.tabs[3]
     assert len(aba_idades.get("plotly_chart")) >= 1
     assert any("Idade da vítima" in str(df.value.values) for df in aba_idades.dataframe)
 
@@ -404,7 +416,7 @@ def test_app_aba_idades_sem_colunas_de_idade_avisa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("não possui as colunas de idade" in i.value for i in at.tabs[2].info)
+    assert any("não possui as colunas de idade" in i.value for i in at.tabs[3].info)
 
 
 def test_app_aba_idades_sem_idades_validas_avisa_usuario():
@@ -423,8 +435,8 @@ def test_app_aba_idades_sem_idades_validas_avisa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("idades válidas" in w.value for w in at.tabs[2].warning)
-    assert any("Registros válidos" in str(df.value.columns) for df in at.tabs[2].dataframe)
+    assert any("idades válidas" in w.value for w in at.tabs[3].warning)
+    assert any("Registros válidos" in str(df.value.columns) for df in at.tabs[3].dataframe)
 
 
 def test_app_serie_categorica_oferece_meio_utilizado_e_motivacao():
@@ -533,7 +545,7 @@ def test_app_aba_classificacao_renderiza_graficos_metricas_e_tabela():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[4]
+    aba = at.tabs[5]
     valores = [m.value for m in aba.metric]
     assert "artefato" in valores  # fonte do modelo
     assert any("10.66" == str(v) for v in valores)  # limiar da mediana
@@ -559,7 +571,7 @@ def test_app_aba_classificacao_sem_classificacoes_informa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("não contém classificações" in i.value for i in at.tabs[4].info)
+    assert any("não contém classificações" in i.value for i in at.tabs[5].info)
 
 
 def test_app_aba_classificacao_falha_exibe_error():
@@ -572,7 +584,7 @@ def test_app_aba_classificacao_falha_exibe_error():
         at = _rodar()
 
     assert not at.exception
-    assert any("classificação indisponível" in e.value for e in at.tabs[4].error)
+    assert any("classificação indisponível" in e.value for e in at.tabs[5].error)
 
 
 def test_app_aba_classificacao_sem_metricas_holdout_renderiza():

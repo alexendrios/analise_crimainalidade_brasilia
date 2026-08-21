@@ -37,6 +37,7 @@ from dashboard.api_client import (
     obter_resumo,
 )
 from dashboard.visualizacoes import (
+    COLUNA_REGIAO,
     COLUNAS_IDADES,
     SemDadosParaGraficoError,
     classificacao_para_dataframe,
@@ -63,6 +64,7 @@ from dashboard.visualizacoes import (
 TITULO = "Criminalidade Brasília/DF — Dashboard"
 
 
+@st.cache_data(ttl=600, show_spinner="Carregando dados da API...")
 def _carregar_tabela_completa(base_url: str, tabela: str) -> pd.DataFrame:
     """Busca todas as páginas de uma tabela gold e concatena em um DataFrame."""
     resposta = obter_dados(tabela, pagina=1, tamanho_pagina=1000, base_url=base_url)
@@ -79,6 +81,88 @@ def _colunas_valor(df: pd.DataFrame) -> list:
     """Colunas numéricas utilizáveis como 'coluna de valor' nos gráficos."""
     coluna_ano = coluna_ano_disponivel(df)
     return [c for c in colunas_numericas(df) if c != coluna_ano]
+
+
+def _formatar_numero(valor: float) -> str:
+    """Formata um número com separador de milhar no padrão pt-BR."""
+    if pd.isna(valor):
+        return "—"
+    return f"{valor:,.0f}".replace(",", ".")
+
+
+def _aba_visao_geral(base_url: str) -> None:
+    st.subheader("Visão Geral")
+    tabelas = [t["nome"] for t in listar_tabelas(base_url)]
+    if not tabelas:
+        st.warning("Nenhuma tabela gold encontrada na API.")
+        return
+
+    tabela = st.selectbox(
+        "Tabela gold", tabelas, key="vg_tabela", format_func=rotulo_tabela
+    )
+    df = _carregar_tabela_completa(base_url, tabela)
+    if df.empty:
+        st.info("A tabela selecionada ainda não foi materializada no banco.")
+        return
+
+    colunas = _colunas_valor(df)
+    if not colunas:
+        st.info("A tabela selecionada não possui indicadores numéricos para resumir.")
+        return
+    coluna = st.selectbox(
+        "Indicador", colunas, key="vg_indicador", format_func=rotulo_coluna
+    )
+
+    coluna_ano = coluna_ano_disponivel(df)
+    por_ano = (
+        df.groupby(coluna_ano)[coluna].sum().sort_index()
+        if coluna_ano is not None
+        else pd.Series(dtype=float)
+    )
+    tem_serie = coluna_ano is not None and not por_ano.empty
+    ano_recente = int(por_ano.index[-1]) if tem_serie else None
+
+    base_critica = df[df[coluna_ano] == ano_recente] if tem_serie else df
+    criticas = (
+        base_critica.groupby(COLUNA_REGIAO)[coluna].sum().sort_values(ascending=False)
+        if COLUNA_REGIAO in df.columns
+        else pd.Series(dtype=float)
+    )
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    if tem_serie:
+        delta = (
+            float(por_ano.iloc[-1] - por_ano.iloc[-2]) if len(por_ano) >= 2 else None
+        )
+        col1.metric(
+            f"{rotulo_coluna(coluna)} em {ano_recente}",
+            _formatar_numero(float(por_ano.iloc[-1])),
+            delta=delta,
+            delta_color="inverse",
+            help="Variação versus o ano anterior. Vermelho indica alta da criminalidade.",
+        )
+        col2.metric("Período coberto", f"{int(por_ano.index[0])}–{ano_recente}")
+    else:
+        col1.metric(rotulo_coluna(coluna), _formatar_numero(float(df[coluna].sum())))
+        col2.metric("Período coberto", "—")
+
+    if not criticas.empty:
+        col3.metric(
+            "RA mais crítica",
+            str(criticas.index[0]),
+            help=(
+                f"{_formatar_numero(float(criticas.iloc[0]))} registros de "
+                f"{str(rotulo_coluna(coluna)).lower()} "
+                f"{'em ' + str(ano_recente) if tem_serie else 'no período'}."
+            ),
+        )
+        col4.metric("RAs monitoradas", int(df[COLUNA_REGIAO].nunique()))
+    else:
+        col3.metric("RA mais crítica", "—")
+        col4.metric("RAs monitoradas", "—")
+
+    st.caption(f"Tabela: {rotulo_tabela(tabela)} • Indicador: {rotulo_coluna(coluna)}")
 
 
 def _aba_series(base_url: str) -> None:
@@ -409,11 +493,13 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_series, aba_mapa, aba_idades, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
-        ["Séries Temporais", "Mapa de Calor", "Idades", "Previsões", "Classificação", "Tabelas"]
+    aba_visao, aba_series, aba_mapa, aba_idades, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
+        ["Visão Geral", "Séries Temporais", "Mapa de Calor", "Idades", "Previsões", "Classificação", "Tabelas"]
     )
 
     try:
+        with aba_visao:
+            _aba_visao_geral(base_url)
         with aba_series:
             _aba_series(base_url)
         with aba_mapa:

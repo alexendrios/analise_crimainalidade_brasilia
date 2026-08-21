@@ -167,6 +167,7 @@ def figura_serie_temporal(
         legend_title=COLUNA_REGIAO.capitalize(),
         height=480,
         template="plotly_white",
+        hovermode="x unified",
     )
     return fig
 
@@ -241,6 +242,7 @@ def figura_serie_temporal_categorica(
         legend_title=rotulo_coluna(coluna_categorica),
         height=480,
         template="plotly_white",
+        hovermode="x unified",
     )
     return fig
 
@@ -276,6 +278,7 @@ def figura_heatmap_ra_ano(df: pd.DataFrame, coluna_valor: str) -> go.Figure:
         yaxis_title="Região Administrativa",
         height=520,
         template="plotly_white",
+        hoverlabel=dict(bgcolor="white"),
     )
     return fig
 
@@ -304,7 +307,12 @@ def figura_ranking_ra(df: pd.DataFrame, coluna_valor: str, ano: Optional[int] = 
             x=ranking[coluna_valor],
             y=[str(ra) for ra in ranking[COLUNA_REGIAO]],
             orientation="h",
-            marker_color="firebrick",
+            marker=dict(
+                color=ranking[coluna_valor],
+                colorscale="YlOrRd",
+                showscale=False,
+            ),
+            hovertemplate="RA: %{y}<br>Valor: %{x}<extra></extra>",
         )
     )
     titulo = f"Ranking de {rotulo_coluna(coluna_valor)} por RA"
@@ -519,6 +527,7 @@ def figura_heatmap_probabilidade(payload: Dict[str, Any]) -> go.Figure:
         yaxis_title="Região Administrativa",
         height=520,
         template="plotly_white",
+        hoverlabel=dict(bgcolor="white"),
     )
     return fig
 
