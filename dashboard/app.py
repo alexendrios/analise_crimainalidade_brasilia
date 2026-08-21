@@ -63,6 +63,12 @@ from dashboard.visualizacoes import (
 
 TITULO = "Criminalidade Brasília/DF — Dashboard"
 
+TABELAS_EXCLUIDAS_VISAO_GERAL = {
+    "identificacao_crimes_contra_mulher_gold",
+    "desaparecidos_idade_sexo_gold",
+    "desaparecidos_localizados_gold",
+}
+
 
 @st.cache_data(ttl=600, show_spinner="Carregando dados da API...")
 def _carregar_tabela_completa(base_url: str, tabela: str) -> pd.DataFrame:
@@ -92,7 +98,11 @@ def _formatar_numero(valor: float) -> str:
 
 def _aba_visao_geral(base_url: str) -> None:
     st.subheader("Visão Geral")
-    tabelas = [t["nome"] for t in listar_tabelas(base_url)]
+    tabelas = [
+        t["nome"]
+        for t in listar_tabelas(base_url)
+        if t["nome"] not in TABELAS_EXCLUIDAS_VISAO_GERAL
+    ]
     if not tabelas:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
