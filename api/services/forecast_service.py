@@ -29,7 +29,9 @@ from typing import Any, Dict, List, Optional
 
 from analysis.data_analyzer import (
     FEATURES,
+    HORIZONTE_ANOS_PADRAO,
     MODELS_DIR,
+    VERSAO_FEATURES,
     calcular_metricas,
     carregar_modelo,
     localizar_ultimo_modelo_bundle,
@@ -57,16 +59,19 @@ class DadosInsuficientesError(ValueError):
 
 
 def gerar_previsao(
-    horizonte_anos: int = 5,
+    horizonte_anos: int | None = None,
     usar_cache: bool = True,
     forcar_retreino: bool = False,
     persistir_modelo: bool = False,
 ) -> Dict[str, Any]:
     """
-    Gera (ou retorna do cache) a previsão de `crimes_contra_mulher` para
-    os próximos `horizonte_anos` anos, usando o pipeline híbrido
-    Prophet + XGBoost já existente em `analysis/data_analyzer.py`.
+    Gera (ou retorna do cache) a previsão da coluna alvo configurada em
+    `config.yaml` (seção `modelagem`) para os próximos `horizonte_anos`
+    anos, usando o pipeline híbrido Prophet + XGBoost já existente em
+    `analysis/data_analyzer.py`.
 
+    :param horizonte_anos: anos à frente; quando None, usa o horizonte
+        padrão definido no config.yaml (`modelagem.horizonte_anos`).
     :param forcar_retreino: se True, ignora qualquer artefato persistido em
         `models/` e treina um par Prophet/XGBoost novo a partir dos dados
         atuais (usado pelo endpoint `POST /previsao/retrain`).
@@ -74,6 +79,7 @@ def gerar_previsao(
         por `forcar_retreino=True`, seja por não existir nenhum bundle
         salvo ainda), o novo par Prophet/XGBoost é salvo em `models/`.
     """
+    horizonte_anos = int(horizonte_anos or HORIZONTE_ANOS_PADRAO)
     agora = time.time()
 
     if usar_cache and not forcar_retreino and horizonte_anos in _CACHE:
@@ -196,6 +202,17 @@ def _tentar_servir_de_artefato(df_preparado, horizonte_anos):
         )
         return None, None, None
 
+    versao_meta = (meta or {}).get("extra", {}).get("versao_features")
+    if versao_meta != VERSAO_FEATURES:
+        logger.warning(
+            "⚠️ Artefato %s treinado com versão de features %s (atual: %s) — "
+            "incompatível, re-treinando.",
+            model_path,
+            versao_meta,
+            VERSAO_FEATURES,
+        )
+        return None, None, None
+
     bounds = (meta or {}).get("extra", {}).get("residual_bounds", {})
     residual_min = bounds.get("min")
     residual_max = bounds.get("max")
@@ -257,6 +274,8 @@ def _persistir_modelo(
         "extra": {
             "residual_bounds": {"min": residual_min, "max": residual_max},
             "forecast_horizon_years": 5,
+            "versao_features": VERSAO_FEATURES,
+            "estrategia_validacao": "backtesting rolling-origin (TimeSeriesSplit)",
             "gerado_via": "api",
         },
     }

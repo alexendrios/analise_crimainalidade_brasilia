@@ -58,8 +58,7 @@ def obter_engine():
     )
 
     try:
-        logger.info("🔎 DATABASE_URL final: %s", DATABASE_URL)
-
+        # A URL nunca é logada: contém a senha do banco.
         _engine = create_engine(DATABASE_URL, pool_pre_ping=True)
         logger.info("✅ Engine SQLAlchemy criado com sucesso")
         return _engine

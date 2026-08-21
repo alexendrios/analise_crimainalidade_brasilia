@@ -6,6 +6,7 @@ import pandas as pd
 import pytest
 from unittest.mock import MagicMock, mock_open, patch
 
+from analysis.data_analyzer import VERSAO_FEATURES
 from api.services import forecast_service
 
 
@@ -239,7 +240,10 @@ def test_gerar_previsao_usa_artefato_quando_disponivel():
     meta_fake = {
         "model_file": "xgb_residual_log_20260101_120000.pkl",
         "metrics": {"mae": 0.05, "rmse": 0.07},
-        "extra": {"residual_bounds": {"min": -0.4, "max": 0.4}},
+        "extra": {
+            "residual_bounds": {"min": -0.4, "max": 0.4},
+            "versao_features": VERSAO_FEATURES,
+        },
     }
 
     with (
@@ -302,6 +306,54 @@ def test_gerar_previsao_forcar_retreino_ignora_artefato_existente():
         resultado = forecast_service.gerar_previsao(horizonte_anos=1, forcar_retreino=True)
 
     mock_localizar.assert_not_called()
+    mock_treinar.assert_called_once()
+    assert resultado["fonte_modelo"] == "retreino"
+
+
+def test_gerar_previsao_artefato_versao_features_incompativel_cai_para_retreino():
+    """Artefatos treinados com a definição antiga de features (sem
+    `versao_features` nos metadados, ou versão diferente da atual) não são
+    seguros para servir previsão -> deve cair para retreino."""
+    df = _df_base()
+    df_preparado = df.copy()
+    df_preparado["ano"] = pd.to_datetime(df_preparado["ano"], format="%Y")
+
+    forecast_fake = pd.DataFrame(
+        {
+            "ano": [pd.Timestamp("2021-01-01")],
+            "prophet": [130.0],
+            "residual_log": [0.01],
+            "final": [131.0],
+        }
+    )
+
+    meta_antigo = {
+        "model_file": "antigo.pkl",
+        "metrics": {"mae": 0.1, "rmse": 0.2},
+        "extra": {"residual_bounds": {"min": -0.5, "max": 0.5}},
+    }
+
+    with (
+        patch("api.services.forecast_service.Repository.load", return_value=df),
+        patch(
+            "api.services.forecast_service.preparar_dados", return_value=df_preparado
+        ),
+        patch(
+            "api.services.forecast_service.localizar_ultimo_modelo_bundle",
+            return_value=("models/antigo.pkl", meta_antigo),
+        ),
+        patch(
+            "api.services.forecast_service.carregar_modelo",
+            return_value=(MagicMock(), MagicMock()),
+        ),
+        patch(
+            "api.services.forecast_service.treinar_residual",
+            return_value=(MagicMock(), MagicMock(), {"mae": 0.1, "rmse": 0.1}, -0.5, 0.5, {}),
+        ) as mock_treinar,
+        patch("api.services.forecast_service.prever_futuro", return_value=forecast_fake),
+    ):
+        resultado = forecast_service.gerar_previsao(horizonte_anos=1)
+
     mock_treinar.assert_called_once()
     assert resultado["fonte_modelo"] == "retreino"
 

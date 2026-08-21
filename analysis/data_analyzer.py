@@ -9,10 +9,12 @@ import joblib
 import numpy as np
 import pandas as pd
 from prophet import Prophet
-from sklearn.metrics import mean_absolute_error, mean_squared_error
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.model_selection import TimeSeriesSplit
 from xgboost import XGBRegressor
 
 from ingestion.repository_adapter import Repository
+from util.config_loader import get_config
 from util.log import logs
 
 logger = logs()
@@ -20,6 +22,12 @@ logger = logs()
 # =========================================================
 # CONFIG
 # =========================================================
+_config_modelagem = get_config().get("modelagem", {})
+
+TABELA_MODELO = _config_modelagem.get("tabela_gold", "violencia_contra_mulher_gold")
+COLUNA_ALVO = _config_modelagem.get("coluna_alvo", "crimes_contra_mulher")
+HORIZONTE_ANOS_PADRAO = int(_config_modelagem.get("horizonte_anos", 5))
+
 FEATURES = [
     "lag_1",
     "lag_2",
@@ -31,6 +39,22 @@ FEATURES = [
     "ano_num",
     "diff_1",
 ]
+
+# Versão da definição de features. A semântica de diff_1 mudou para ser
+# estritamente causal (usa apenas valores defasados), então artefatos
+# treinados com a definição antiga não devem servir previsão.
+VERSAO_FEATURES = 2
+
+PARAMS_XGB = {
+    "n_estimators": 600,
+    "learning_rate": 0.015,
+    "max_depth": 3,
+    "subsample": 0.8,
+    "colsample_bytree": 0.8,
+    "reg_alpha": 0.5,
+    "reg_lambda": 2,
+    "random_state": 42,
+}
 
 MODELS_DIR = "models"
 MODEL_NAME = f"xgb_residual_log_{datetime.now().strftime('%Y%m%d_%H%M')}"
@@ -173,6 +197,7 @@ def calcular_metricas(y_true, y_pred):
     return {
         "mae": float(mean_absolute_error(y_true, y_pred)),
         "rmse": float(np.sqrt(mean_squared_error(y_true, y_pred))),
+        "r2": float(r2_score(y_true, y_pred)),
     }
 
 
@@ -201,7 +226,7 @@ def preparar_dados(df, valor_col):
 
     df["trend"] = np.arange(len(df))
     df["ano_num"] = df["ano"].dt.year
-    df["diff_1"] = df[valor_col].diff(1)
+    df["diff_1"] = df[valor_col].shift(1).diff(1)
 
     df = df.dropna()
 
@@ -212,9 +237,15 @@ def preparar_dados(df, valor_col):
 # PROPHET
 # =========================================================
 def treinar_prophet(df, valor_col):
+    """
+    Ajusta o Prophet na série informada e retorna (modelo, forecast in-sample).
+
+    Dados anuais (1 observação/ano) não têm ciclos anuais repetidos, então
+    a sazonalidade yearly fica indefinida — apenas a tendência é modelada.
+    """
     df_p = df[["ano", valor_col]].rename(columns={"ano": "ds", valor_col: "y"})
 
-    model = Prophet(yearly_seasonality=True)
+    model = Prophet(yearly_seasonality=False)
     model.fit(df_p)
 
     forecast = model.predict(df_p)
@@ -223,55 +254,119 @@ def treinar_prophet(df, valor_col):
 
 
 # =========================================================
+# VALIDAÇÃO SEM VAZAMENTO (BACKTESTING ROLLING-ORIGIN)
+# =========================================================
+def _projetar_prophet(prophet_model, df):
+    """Gera yhat do Prophet já ajustado para as datas de df (fora da amostra
+    quando df contém períodos não vistos no ajuste)."""
+    futuro = prophet_model.predict(df[["ano"]].rename(columns={"ano": "ds"}))
+    return futuro["yhat"].to_numpy(dtype=float)
+
+
+def _residuo_log(y_real, yhat_prophet):
+    return np.log1p(np.asarray(y_real, dtype=float)) - np.log1p(yhat_prophet)
+
+
+def _treinar_xgb(X, y):
+    modelo = XGBRegressor(**PARAMS_XGB)
+    modelo.fit(X, y)
+    return modelo
+
+
+def _avaliar_fold(df_treino, df_teste, valor_col):
+    """Avalia um fold sem vazamento: Prophet ajustado só com o treino do fold
+    e projetado fora da amostra sobre o teste; XGBoost aprende o resíduo do
+    treino e é medido no teste. Retorna métricas no resíduo (log) e na
+    escala original (contagem de casos)."""
+    prophet_fold, _ = treinar_prophet(df_treino, valor_col)
+
+    resid_treino = _residuo_log(
+        df_treino[valor_col].to_numpy(),
+        _projetar_prophet(prophet_fold, df_treino),
+    )
+
+    yhat_teste = _projetar_prophet(prophet_fold, df_teste)
+    resid_teste = _residuo_log(df_teste[valor_col].to_numpy(), yhat_teste)
+
+    xgb_fold = _treinar_xgb(df_treino[FEATURES], resid_treino)
+    preds = xgb_fold.predict(df_teste[FEATURES])
+
+    metricas_residuo = calcular_metricas(resid_teste, preds)
+    metricas_original = calcular_metricas(
+        df_teste[valor_col].to_numpy(),
+        np.expm1(np.log1p(yhat_teste) + preds),
+    )
+    return metricas_residuo, metricas_original
+
+
+def _media_metricas(folds):
+    chaves = folds[0].keys()
+    return {k: float(np.mean([m[k] for m in folds])) for k in chaves}
+
+
+def _numero_folds(n_amostras):
+    if n_amostras >= 12:
+        return 3
+    if n_amostras >= 6:
+        return 2
+    return 0
+
+
+def avaliar_generalizacao(df, valor_col):
+    """
+    Backtesting rolling-origin via TimeSeriesSplit: em cada fold o Prophet é
+    ajustado apenas com o passado daquele fold, eliminando o vazamento de
+    avaliar com informação do período de teste. Com série escassa demais para
+    múltiplos folds, cai para um único holdout 80/20 (também sem vazamento).
+
+    :return: tupla `(metricas_residuo_log, metricas_escala_original)`, cada
+        uma com mae/rmse/r2 agregados pela média dos folds.
+    """
+    n_folds = _numero_folds(len(df))
+
+    if n_folds == 0:
+        logger.warning("⚠️ Série curta demais para backtesting; usando holdout único (80/20)")
+        split = int(len(df) * 0.8)
+        return _avaliar_fold(df.iloc[:split], df.iloc[split:], valor_col)
+
+    metricas_residuo_folds = []
+    metricas_original_folds = []
+
+    for idx_treino, idx_teste in TimeSeriesSplit(n_splits=n_folds).split(df):
+        m_res, m_orig = _avaliar_fold(df.iloc[idx_treino], df.iloc[idx_teste], valor_col)
+        metricas_residuo_folds.append(m_res)
+        metricas_original_folds.append(m_orig)
+        logger.info(f"📊 Fold ({len(idx_treino)} treino / {len(idx_teste)} teste): {m_orig}")
+
+    return _media_metricas(metricas_residuo_folds), _media_metricas(metricas_original_folds)
+
+
+# =========================================================
 # TREINAMENTO RESIDUAL (ROBUSTO)
 # =========================================================
 def treinar_residual(df, valor_col):
-    logger.info("🤖 Treinando modelo residual LOG (robusto)")
+    logger.info("🤖 Treinando modelo residual LOG (validação por backtesting)")
 
+    # Métricas honestas: nenhum componente vê o período de teste durante a validação
+    metricas_residuo, metricas_original = avaliar_generalizacao(df, valor_col)
+    metrics = {**metricas_residuo, "escala_original": metricas_original}
+
+    # Modelo final: Prophet + XGBoost ajustados na série completa
     prophet_model, prophet_fit = treinar_prophet(df, valor_col)
+    df["residual"] = _residuo_log(
+        df[valor_col].to_numpy(), prophet_fit["yhat"].to_numpy(dtype=float)
+    )
 
-    df["prophet_fit"] = prophet_fit["yhat"].values
-
-    # Residual log
-    df["residual"] = np.log1p(df[valor_col]) - np.log1p(df["prophet_fit"])
-
-    split = int(len(df) * 0.8)
-
-    train = df.iloc[:split]
-    test = df.iloc[split:]
-
-    X_train = train[FEATURES]
-    y_train = train["residual"]
-
-    X_test = test[FEATURES]
-    y_test = test["residual"]
-
-    params = {
-        "n_estimators": 600,
-        "learning_rate": 0.015,
-        "max_depth": 3,
-        "subsample": 0.8,
-        "colsample_bytree": 0.8,
-        "reg_alpha": 0.5,
-        "reg_lambda": 2,
-        "random_state": 42,
-    }
-
-    model = XGBRegressor(**params)
-    model.fit(X_train, y_train)
-
-    preds = model.predict(X_test)
-
-    metrics = calcular_metricas(y_test, preds)
+    model = _treinar_xgb(df[FEATURES], df["residual"])
 
     # bounds dinâmicos
     residual_min = float(df["residual"].quantile(0.05))
     residual_max = float(df["residual"].quantile(0.95))
 
     logger.info(f"📊 Residual bounds: [{residual_min:.4f}, {residual_max:.4f}]")
-    logger.info(f"📊 Residual MAE: {metrics['mae']:.4f}")
+    logger.info(f"📊 Validação (backtesting): residuo={metricas_residuo} | escala_original={metricas_original}")
 
-    return model, prophet_model, metrics, residual_min, residual_max, params
+    return model, prophet_model, metrics, residual_min, residual_max, dict(PARAMS_XGB)
 
 
 # =========================================================
@@ -314,22 +409,24 @@ def prever_futuro(
 
         final = max(0.1, final)
 
-        # UPDATE FEATURES
+        # UPDATE FEATURES — mesma semântica causal do treino:
+        # para a linha r, lag_1=y[r-1], lag_2=y[r-2], diff_1=y[r-1]-y[r-2].
+        # Quando o ano anterior foi previsto, seu valor previsto é usado.
         novo = ultimo.copy()
         novo["ano"] += pd.DateOffset(years=1)
         novo[valor_col] = final
 
-        lag1 = float(final)
-        lag2 = float(ultimo["lag_1"].values[0])
-        lag3 = float(ultimo["lag_2"].values[0])
+        y_anterior = float(ultimo[valor_col].values[0])
+        lag2_novo = float(ultimo["lag_1"].values[0])
+        lag3_novo = float(ultimo["lag_2"].values[0])
 
-        novo["lag_1"] = lag1
-        novo["lag_2"] = lag2
+        novo["lag_1"] = y_anterior
+        novo["lag_2"] = lag2_novo
 
-        novo["rolling_mean_2"] = np.mean([lag1, lag2])
-        novo["rolling_mean_3"] = np.mean([lag1, lag2, lag3])
+        novo["rolling_mean_2"] = np.mean([y_anterior, lag2_novo])
+        novo["rolling_mean_3"] = np.mean([y_anterior, lag2_novo, lag3_novo])
 
-        novo["diff_1"] = float(final - ultimo[valor_col].values[0])
+        novo["diff_1"] = float(y_anterior - lag2_novo)
         novo["trend"] = ultimo["trend"].values[0] + 1
         novo["ano_num"] = novo["ano"].dt.year
         novo["taxa_feminicidio"] = ultimo["taxa_feminicidio"]
@@ -351,14 +448,13 @@ def prever_futuro(
 # =========================================================
 # PIPELINE
 # =========================================================
-def executar_pipeline():
+def executar_pipeline(horizonte_anos: int | None = None):
     logger.info("🚀 Pipeline iniciado")
 
-    table_name = "violencia_contra_mulher_gold"
-    valor_col = "crimes_contra_mulher"
+    horizonte = int(horizonte_anos or HORIZONTE_ANOS_PADRAO)
 
-    df = Repository.load(table_name)
-    df_preparado = preparar_dados(df, valor_col)
+    df = Repository.load(TABELA_MODELO)
+    df_preparado = preparar_dados(df, COLUNA_ALVO)
 
     (
         model,
@@ -367,9 +463,11 @@ def executar_pipeline():
         rmin,
         rmax,
         hyperparams,
-    ) = treinar_residual(df_preparado, valor_col)
+    ) = treinar_residual(df_preparado, COLUNA_ALVO)
 
-    forecast = prever_futuro(model, prophet_model, df_preparado, valor_col, rmin, rmax)
+    forecast = prever_futuro(
+        model, prophet_model, df_preparado, COLUNA_ALVO, rmin, rmax, anos=horizonte
+    )
 
     # Prepara o payload de metadados
     metadata = {
@@ -378,15 +476,17 @@ def executar_pipeline():
         "features": FEATURES,
         "target": "residual_log",
         "dataset_info": {
-            "source_table": table_name,
-            "target_column": valor_col,
+            "source_table": TABELA_MODELO,
+            "target_column": COLUNA_ALVO,
             "total_records": len(df_preparado),
             "period_min": str(df_preparado["ano"].min().year),
             "period_max": str(df_preparado["ano"].max().year),
         },
         "extra": {
             "residual_bounds": {"min": rmin, "max": rmax},
-            "forecast_horizon_years": 5,
+            "forecast_horizon_years": horizonte,
+            "versao_features": VERSAO_FEATURES,
+            "estrategia_validacao": "backtesting rolling-origin (TimeSeriesSplit)",
         },
     }
 

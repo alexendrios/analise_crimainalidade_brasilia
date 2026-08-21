@@ -15,6 +15,8 @@ injection — ela apenas fica menos "amigável" na listagem.
 
 from typing import Dict
 
+from util.config_loader import get_config
+
 # nome_da_tabela_gold -> descrição amigável (pt-BR) exibida na API
 TABELAS_GOLD: Dict[str, str] = {
     "violencia_contra_mulher_gold": "Crimes contra a mulher, consolidado anual por RA",
@@ -42,9 +44,11 @@ COLUNA_ANO_POR_TABELA: Dict[str, str] = {
     "crimes_discriminatorios_gold": "ano",
 }
 
-# Tabela/coluna usadas pelo endpoint de previsão
-TABELA_MODELO_PREVISAO = "violencia_contra_mulher_gold"
-COLUNA_ALVO_PREVISAO = "crimes_contra_mulher"
+# Tabela/coluna usadas pelo endpoint de previsão — fonte única de verdade
+# na seção `modelagem` do config.yaml (mesma usada por analysis/data_analyzer).
+_config_modelagem = get_config().get("modelagem", {})
+TABELA_MODELO_PREVISAO = _config_modelagem.get("tabela_gold", "violencia_contra_mulher_gold")
+COLUNA_ALVO_PREVISAO = _config_modelagem.get("coluna_alvo", "crimes_contra_mulher")
 
 # TTL (segundos) do cache em memória da previsão, evitando re-treinar o
 # modelo (Prophet + XGBoost) a cada requisição.

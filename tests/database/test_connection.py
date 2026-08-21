@@ -70,6 +70,26 @@ def test_logs_de_criacao_engine(env_valido, monkeypatch, caplog):
     assert any("Engine SQLAlchemy criado com sucesso" in m for m in mensagens)
 
 
+def test_logs_nao_expoem_credencial(env_valido, monkeypatch, caplog):
+    """A senha (bruta ou URL-encoded) nunca pode aparecer nos logs."""
+    engine_mock = MagicMock()
+
+    monkeypatch.setattr(
+        connection,
+        "create_engine",
+        lambda *args, **kwargs: engine_mock,
+    )
+
+    with caplog.at_level("DEBUG"):
+        connection.obter_engine()
+
+    todas = " ".join(r.getMessage() for r in caplog.records)
+
+    assert "senha@123" not in todas
+    assert "senha%40123" not in todas
+    assert "postgresql+psycopg2://" not in todas
+
+
 def test_close_engine_com_engine_ativo_faz_dispose(monkeypatch):
     engine_mock = MagicMock()
     monkeypatch.setattr(connection, "_engine", engine_mock)

@@ -10,6 +10,7 @@ from analysis.data_analyzer import (
     calcular_metricas,
     carregar_modelo,
     executar_pipeline,
+    avaliar_generalizacao,
     localizar_ultimo_modelo_bundle,
     prever_futuro,
     preparar_dados,
@@ -217,15 +218,17 @@ def test_localizar_ultimo_modelo_bundle_diretorio_vazio(tmp_path):
 # ============================================================
 # calcular_metricas
 # ============================================================
-def test_calcular_metricas_mae_rmse():
+def test_calcular_metricas_mae_rmse_r2():
     y_true = [1.0, 2.0, 3.0, 4.0]
     y_pred = [1.5, 2.5, 2.5, 4.5]
 
     resultado = calcular_metricas(y_true, y_pred)
 
-    assert set(resultado.keys()) == {"mae", "rmse"}
+    assert set(resultado.keys()) == {"mae", "rmse", "r2"}
     assert resultado["mae"] == pytest.approx(0.5)
     assert resultado["rmse"] > 0
+    # ss_res=1.0, ss_tot=5.0 -> r2 = 0.8
+    assert resultado["r2"] == pytest.approx(0.8)
 
 
 # ============================================================
@@ -272,6 +275,21 @@ def test_preparar_dados_trata_divisao_por_zero_na_taxa_feminicidio():
     assert not resultado["taxa_feminicidio"].isna().any()
 
 
+def test_preparar_dados_diff1_e_estritamente_causal():
+    """diff_1 não pode conter o valor do ano corrente (vazamento do alvo):
+    deve ser a diferença dos valores defasados, y[t-1] - y[t-2]."""
+    df = _df_bruto(range(2015, 2023))
+
+    resultado = preparar_dados(df, "crimes_contra_mulher")
+
+    esperado = df["crimes_contra_mulher"].shift(1).diff(1)
+    pd.testing.assert_series_equal(
+        resultado["diff_1"],
+        esperado.loc[resultado.index],
+        check_names=False,
+    )
+
+
 # ============================================================
 # treinar_prophet
 # ============================================================
@@ -289,7 +307,7 @@ def test_treinar_prophet_chama_fit_e_predict_com_colunas_ds_y():
     with patch(f"{MODULO}.Prophet", return_value=mock_prophet_instance) as mock_prophet_cls:
         model, forecast = treinar_prophet(df, "crimes_contra_mulher")
 
-    mock_prophet_cls.assert_called_once_with(yearly_seasonality=True)
+    mock_prophet_cls.assert_called_once_with(yearly_seasonality=False)
 
     fit_args = mock_prophet_instance.fit.call_args[0][0]
     assert list(fit_args.columns) == ["ds", "y"]
@@ -300,7 +318,7 @@ def test_treinar_prophet_chama_fit_e_predict_com_colunas_ds_y():
 
 
 # ============================================================
-# treinar_residual
+# treinar_residual / avaliar_generalizacao (backtesting)
 # ============================================================
 def _df_preparado(n=10):
     """DataFrame já no formato pós preparar_dados, pronto para treinar_residual."""
@@ -308,29 +326,88 @@ def _df_preparado(n=10):
     return preparar_dados(df, "crimes_contra_mulher")
 
 
+def _prophet_fake(yhat_base=100.0):
+    """Mock de Prophet cujo predict devolve yhat constante com o tamanho do df consultado."""
+    modelo = MagicMock()
+    modelo.predict.side_effect = lambda ds_df: pd.DataFrame(
+        {"yhat": np.full(len(ds_df), yhat_base)}
+    )
+    return modelo
+
+
 def test_treinar_residual_retorna_modelo_metricas_e_bounds():
     df = _df_preparado()
 
-    prophet_model_fake = MagicMock()
-    prophet_forecast_fake = pd.DataFrame({"yhat": np.linspace(100, 200, len(df))})
-
     with patch(
         f"{MODULO}.treinar_prophet",
-        return_value=(prophet_model_fake, prophet_forecast_fake),
+        side_effect=lambda df_treino, valor_col: (
+            _prophet_fake(),
+            pd.DataFrame({"yhat": np.full(len(df_treino), float(df_treino[valor_col].mean()))}),
+        ),
     ) as mock_treinar_prophet:
         model, prophet_model, metrics, rmin, rmax, params = treinar_residual(
             df.copy(), "crimes_contra_mulher"
         )
 
-    mock_treinar_prophet.assert_called_once()
-    assert prophet_model is prophet_model_fake
-    assert set(metrics.keys()) == {"mae", "rmse"}
+    # backtesting (2 folds na série de 7 linhas) + ajuste final = 3 chamadas
+    assert mock_treinar_prophet.call_count == 3
+    assert set(metrics.keys()) == {"mae", "rmse", "r2", "escala_original"}
+    assert set(metrics["escala_original"].keys()) == {"mae", "rmse", "r2"}
     assert rmin <= rmax
     assert params["n_estimators"] == 600
     assert params["random_state"] == 42
     # modelo XGBoost real e treinado -> deve conseguir prever
     preds = model.predict(df[FEATURES])
     assert len(preds) == len(df)
+
+
+def test_backtesting_ajusta_prophet_apenas_com_passado_de_cada_fold():
+    """Sem vazamento: em nenhum fold o Prophet é ajustado com a série completa,
+    e as janelas de treino crescem monotonicamente (rolling-origin)."""
+    df = _df_preparado(n=16)  # 13 linhas pós-preparo -> 3 folds
+    tamanhos_treino = []
+
+    def fake_treinar(df_treino, valor_col):
+        tamanhos_treino.append(len(df_treino))
+        base = float(df_treino[valor_col].mean())
+        modelo = MagicMock()
+        modelo.predict.side_effect = lambda ds_df: pd.DataFrame(
+            {"yhat": np.full(len(ds_df), base)}
+        )
+        return modelo, pd.DataFrame()
+
+    with patch(f"{MODULO}.treinar_prophet", side_effect=fake_treinar):
+        metricas_residuo, metricas_original = avaliar_generalizacao(
+            df, "crimes_contra_mulher"
+        )
+
+    assert len(tamanhos_treino) == 3
+    assert all(n < len(df) for n in tamanhos_treino)
+    assert tamanhos_treino == sorted(tamanhos_treino)
+    assert set(metricas_residuo.keys()) == {"mae", "rmse", "r2"}
+    assert set(metricas_original.keys()) == {"mae", "rmse", "r2"}
+
+
+def test_avaliar_generalizacao_usa_holdout_quando_serie_curta():
+    df = _df_preparado(n=8)  # 5 linhas pós-preparo -> holdout único
+    tamanhos_treino = []
+
+    def fake_treinar(df_treino, valor_col):
+        tamanhos_treino.append(len(df_treino))
+        modelo = MagicMock()
+        modelo.predict.side_effect = lambda ds_df: pd.DataFrame(
+            {"yhat": np.full(len(ds_df), float(df_treino[valor_col].mean()))}
+        )
+        return modelo, pd.DataFrame()
+
+    with patch(f"{MODULO}.treinar_prophet", side_effect=fake_treinar):
+        metricas_residuo, metricas_original = avaliar_generalizacao(
+            df, "crimes_contra_mulher"
+        )
+
+    assert len(tamanhos_treino) == 1
+    assert tamanhos_treino[0] == int(len(df) * 0.8)
+    assert set(metricas_residuo.keys()) == {"mae", "rmse", "r2"}
 
 
 # ============================================================
@@ -487,16 +564,13 @@ def test_modulo_executado_como_main_chama_executar_pipeline():
 
     df_bruto_fake = _df_bruto()
     df_preparado_fake = preparar_dados(df_bruto_fake.copy(), "crimes_contra_mulher")
-    n = len(df_preparado_fake)
 
     mock_prophet_instance = MagicMock()
-    # 1ª chamada a .predict() acontece dentro de treinar_prophet (via
-    # treinar_residual) e precisa casar em tamanho com df_preparado;
-    # a 2ª acontece dentro de prever_futuro (horizonte padrão = 5 anos).
-    mock_prophet_instance.predict.side_effect = [
-        pd.DataFrame({"yhat": np.linspace(100, 200, n)}),
-        pd.DataFrame({"yhat": np.linspace(100, 300, 5)}),
-    ]
+    # .predict() é chamado várias vezes (folds do backtesting, ajuste final e
+    # prever_futuro) e sempre precisa devolver yhat no tamanho consultado.
+    mock_prophet_instance.predict.side_effect = lambda ds_df: pd.DataFrame(
+        {"yhat": np.linspace(100.0, 100.0 + len(ds_df), len(ds_df))}
+    )
     mock_prophet_instance.make_future_dataframe.return_value = pd.DataFrame(
         {"ds": pd.date_range("2020-01-01", periods=5, freq="YS")}
     )
