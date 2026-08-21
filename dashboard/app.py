@@ -69,6 +69,15 @@ TABELAS_EXCLUIDAS_VISAO_GERAL = {
     "desaparecidos_localizados_gold",
 }
 
+TABELAS_EXCLUIDAS_SERIES = {
+    "violencia_idosos_gold",
+    "violencia_idosos_mensais_gold",
+    "violencia_idosos_sexo_gold",
+    "desaparecidos_regiao_gold",
+    "desaparecidos_idade_sexo_gold",
+    "desaparecidos_localizados_gold",
+}
+
 
 @st.cache_data(ttl=600, show_spinner="Carregando dados da API...")
 def _carregar_tabela_completa(base_url: str, tabela: str) -> pd.DataFrame:
@@ -177,7 +186,11 @@ def _aba_visao_geral(base_url: str) -> None:
 
 def _aba_series(base_url: str) -> None:
     st.subheader("Séries Temporais")
-    tabelas = [t["nome"] for t in listar_tabelas(base_url)]
+    tabelas = [
+        t["nome"]
+        for t in listar_tabelas(base_url)
+        if t["nome"] not in TABELAS_EXCLUIDAS_SERIES
+    ]
     if not tabelas:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
