@@ -105,5 +105,64 @@ class ModelosTreinadosResponse(BaseModel):
     modelos: List[ModeloTreinadoInfo]
 
 
+class ClassificacaoRegiaoItem(BaseModel):
+    regiao_administrativa: str
+    ano: int
+    classe_prevista: int = Field(
+        ..., description="1 = alta criminalidade letal, 0 = baixa"
+    )
+    rotulo_previsto: str = Field(..., examples=["alta"])
+    probabilidade_alta: float = Field(
+        ..., ge=0.0, le=1.0, description="Probabilidade prevista de alta criminalidade"
+    )
+
+
+class MetricasClassificacao(BaseModel):
+    cv_roc_auc_media: Optional[float] = None
+    cv_roc_auc_std: Optional[float] = None
+    holdout_accuracy: Optional[float] = None
+    holdout_precision: Optional[float] = None
+    holdout_recall: Optional[float] = None
+    holdout_f1: Optional[float] = None
+    holdout_roc_auc: Optional[float] = None
+
+
+class ClassificacaoResponse(BaseModel):
+    tabelas_origem: List[str]
+    total_registros: int
+    total_ras: int
+    periodo: List[int]
+    limiar_taxa_mediana: float = Field(
+        ...,
+        description=(
+            "Taxa total de crimes letais por 100 mil habitantes que separa "
+            "as classes (mediana da base usada no treino)"
+        ),
+    )
+    distribuicao_real: Dict[str, int] = Field(
+        ..., description="Contagem real de registros por classe ('alta'/'baixa')"
+    )
+    metricas: MetricasClassificacao
+    odds_ratios: Dict[str, float] = Field(
+        ..., description="Odds ratio por feature (exp(coeficiente))"
+    )
+    matriz_confusao: List[List[int]]
+    classificacoes: List[ClassificacaoRegiaoItem]
+    gerado_em: datetime
+    cache_ate: Optional[datetime] = None
+    fonte_modelo: Optional[str] = Field(
+        None,
+        description=(
+            "'artefato' quando servido a partir do pipeline de Regressão "
+            "Logística já persistido em models/, sem re-treinar; 'retreino' "
+            "quando treinado nesta requisição."
+        ),
+        examples=["artefato"],
+    )
+    modelo_arquivo: Optional[str] = Field(
+        None, description="Nome do arquivo .pkl usado (ou recém-salvo) para esta classificação"
+    )
+
+
 class ErrorResponse(BaseModel):
     detail: str

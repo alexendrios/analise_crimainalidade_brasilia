@@ -49,6 +49,38 @@ PREVISAO = {
     ],
 }
 
+CLASSIFICACAO = {
+    "tabelas_origem": ["crimes_letais_gold", "populacao_regiao_administrativa"],
+    "total_registros": 4,
+    "total_ras": 2,
+    "periodo": [2023, 2024],
+    "limiar_taxa_mediana": 10.66,
+    "distribuicao_real": {"alta": 2, "baixa": 2},
+    "metricas": {
+        "cv_roc_auc_media": 0.99,
+        "cv_roc_auc_std": 0.01,
+        "holdout_accuracy": 1.0,
+        "holdout_precision": 1.0,
+        "holdout_recall": 1.0,
+        "holdout_f1": 1.0,
+        "holdout_roc_auc": 1.0,
+    },
+    "odds_ratios": {"taxa_homicidio": 199.4, "ano_num": 0.88},
+    "matriz_confusao": [[2, 0], [0, 2]],
+    "fonte_modelo": "artefato",
+    "modelo_arquivo": "logreg_criminalidade_letal.pkl",
+    "classificacoes": [
+        {"regiao_administrativa": "Taguatinga", "ano": 2024,
+         "classe_prevista": 1, "rotulo_previsto": "alta", "probabilidade_alta": 0.92},
+        {"regiao_administrativa": "Ceilândia", "ano": 2024,
+         "classe_prevista": 0, "rotulo_previsto": "baixa", "probabilidade_alta": 0.21},
+        {"regiao_administrativa": "Taguatinga", "ano": 2023,
+         "classe_prevista": 1, "rotulo_previsto": "alta", "probabilidade_alta": 0.88},
+        {"regiao_administrativa": "Ceilândia", "ano": 2023,
+         "classe_prevista": 0, "rotulo_previsto": "baixa", "probabilidade_alta": 0.35},
+    ],
+}
+
 
 def _pads():
     return [
@@ -56,6 +88,7 @@ def _pads():
         patch("dashboard.api_client.obter_dados", return_value=DADOS),
         patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
         patch("dashboard.api_client.obter_previsao", return_value=PREVISAO),
+        patch("dashboard.api_client.obter_classificacao", return_value=CLASSIFICACAO),
         patch("dashboard.api_client.listar_modelos", return_value=[]),
         patch("dashboard.api_client.health", return_value={"status": "ok", "database": "ok"}),
     ]
@@ -493,3 +526,64 @@ def test_app_importado_fora_do_windows_nao_aplica_politica_e_nao_executa_main(mo
     finally:
         monkeypatch.undo()
         importlib.reload(modulo_app)
+
+
+def test_app_aba_classificacao_renderiza_graficos_metricas_e_tabela():
+    with _entrar(_pads()):
+        at = _rodar()
+
+    assert not at.exception
+    aba = at.tabs[4]
+    valores = [m.value for m in aba.metric]
+    assert "artefato" in valores  # fonte do modelo
+    assert any("10.66" == str(v) for v in valores)  # limiar da mediana
+    assert len(aba.get("plotly_chart")) == 2  # ranking + heatmap
+    assert any("Taguatinga" in str(df.value.values) for df in aba.dataframe)
+    assert any("Taxa de homicídio" in str(df.value.values) for df in aba.dataframe)
+
+
+def test_app_aba_classificacao_ranking_respeita_ano_selecionado():
+    with _entrar(_pads()):
+        at = _rodar()
+        # anos ordenados desc: [2024, 2023]; seleciona o ano 2023
+        at.selectbox(key="classe_ano").select(2023).run()
+
+    assert not at.exception
+
+
+def test_app_aba_classificacao_sem_classificacoes_informa_usuario():
+    payload_vazio = dict(CLASSIFICACAO, classificacoes=[])
+    pads = _pads()
+    pads[4] = patch("dashboard.api_client.obter_classificacao", return_value=payload_vazio)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any("não contém classificações" in i.value for i in at.tabs[4].info)
+
+
+def test_app_aba_classificacao_falha_exibe_error():
+    pads = _pads()
+    pads[4] = patch(
+        "dashboard.api_client.obter_classificacao",
+        side_effect=ApiError("classificação indisponível"),
+    )
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any("classificação indisponível" in e.value for e in at.tabs[4].error)
+
+
+def test_app_aba_classificacao_sem_metricas_holdout_renderiza():
+    metricas_parciais = {
+        k: v for k, v in CLASSIFICACAO["metricas"].items()
+        if k not in ("holdout_roc_auc", "holdout_f1", "cv_roc_auc_std")
+    }
+    payload = dict(CLASSIFICACAO, metricas=metricas_parciais)
+    pads = _pads()
+    pads[4] = patch("dashboard.api_client.obter_classificacao", return_value=payload)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception

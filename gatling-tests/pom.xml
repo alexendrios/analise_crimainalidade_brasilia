@@ -11,8 +11,8 @@
 
     <name>Testes de Carga da API - Criminalidade Brasilia/DF</name>
     <description>
-        Testes de carga/performance da API de consumo (camada Gold + previsoes),
-        escritos em Scala com Gatling.
+        Testes de carga/performance da API de consumo (camada Gold + previsoes +
+        classificacao), escritos em Scala com Gatling.
     </description>
 
     <properties>
@@ -22,6 +22,9 @@
         <gatling.version>3.15.1</gatling.version>
         <gatling.plugin.version>4.21.10</gatling.plugin.version>
         <scala.maven.plugin.version>4.9.10</scala.maven.plugin.version>
+        <!-- Padrão do mvn gatling:test; sobrescreva com
+             -Dgatling.simulationClass=criminalidade.api.SmokeSimulation -->
+        <gatling.simulationClass>criminalidade.api.ApiCargaSimulation</gatling.simulationClass>
     </properties>
 
     <dependencies>
@@ -55,7 +58,7 @@
                 <artifactId>gatling-maven-plugin</artifactId>
                 <version>${gatling.plugin.version}</version>
                 <configuration>
-                    <simulationClass>criminalidade.api.ApiCargaSimulation</simulationClass>
+                    <simulationClass>${gatling.simulationClass}</simulationClass>
                 </configuration>
             </plugin>
         </plugins>

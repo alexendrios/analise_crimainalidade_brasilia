@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from api.main import app
-from api.services import forecast_service
+from api.services import classificacao_service, forecast_service
 
 client = TestClient(app)
 
@@ -13,8 +13,10 @@ client = TestClient(app)
 @pytest.fixture(autouse=True)
 def limpar_cache():
     forecast_service.limpar_cache()
+    classificacao_service.limpar_cache()
     yield
     forecast_service.limpar_cache()
+    classificacao_service.limpar_cache()
 
 
 def test_raiz_endpoint():
@@ -263,6 +265,141 @@ def test_modelos_treinados():
 
     assert resp.status_code == 200
     assert resp.json() == payload
+
+
+# ============================================================
+# /classificacao — Regressão Logística
+# ============================================================
+def _payload_classificacao_fake():
+    return {
+        "tabelas_origem": ["crimes_letais_gold", "populacao_regiao_administrativa"],
+        "total_registros": 310,
+        "total_ras": 31,
+        "periodo": [2015, 2024],
+        "limiar_taxa_mediana": 10.66,
+        "distribuicao_real": {"alta": 158, "baixa": 152},
+        "metricas": {
+            "cv_roc_auc_media": 0.994,
+            "cv_roc_auc_std": 0.007,
+            "holdout_accuracy": 0.962,
+            "holdout_precision": 0.974,
+            "holdout_recall": 0.95,
+            "holdout_f1": 0.962,
+            "holdout_roc_auc": 0.997,
+        },
+        "odds_ratios": {"taxa_homicidio": 198.7, "taxa_latrocinio": 2.86},
+        "matriz_confusao": [[73, 3], [5, 95]],
+        "classificacoes": [
+            {
+                "regiao_administrativa": "CEILANDIA",
+                "ano": 2016,
+                "classe_prevista": 1,
+                "rotulo_previsto": "alta",
+                "probabilidade_alta": 0.9987,
+            },
+            {
+                "regiao_administrativa": "JARDIM BOTANICO",
+                "ano": 2020,
+                "classe_prevista": 0,
+                "rotulo_previsto": "baixa",
+                "probabilidade_alta": 0.0013,
+            },
+        ],
+        "gerado_em": "2026-08-21T12:12:42",
+        "cache_ate": "2026-08-21T12:42:42",
+        "fonte_modelo": "artefato",
+        "modelo_arquivo": "logreg_criminalidade_letal_20260821_1212.pkl",
+    }
+
+
+def test_classificacao_sucesso():
+    payload = _payload_classificacao_fake()
+    with patch(
+        "api.services.classificacao_service.classificar_criminalidade",
+        return_value=payload,
+    ) as mock_classificar:
+        resp = client.get("/classificacao/criminalidade-letal")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["fonte_modelo"] == "artefato"
+    assert body["total_registros"] == 310
+    assert len(body["classificacoes"]) == 2
+    mock_classificar.assert_called_once_with(usar_cache=True)
+
+
+def test_classificacao_sem_cache_passa_flag_para_o_servico():
+    with patch(
+        "api.services.classificacao_service.classificar_criminalidade",
+        return_value=_payload_classificacao_fake(),
+    ) as mock_classificar:
+        client.get("/classificacao/criminalidade-letal", params={"usar_cache": False})
+
+    mock_classificar.assert_called_once_with(usar_cache=False)
+
+
+def test_classificacao_dados_insuficientes_retorna_503():
+    with patch(
+        "api.services.classificacao_service.classificar_criminalidade",
+        side_effect=classificacao_service.DadosInsuficientesError("tabela vazia"),
+    ):
+        resp = client.get("/classificacao/criminalidade-letal")
+
+    assert resp.status_code == 503
+    assert "tabela vazia" in resp.json()["detail"]
+
+
+def test_classificacao_erro_inesperado_retorna_500():
+    with patch(
+        "api.services.classificacao_service.classificar_criminalidade",
+        side_effect=RuntimeError("falha ao treinar"),
+    ):
+        resp = client.get("/classificacao/criminalidade-letal")
+
+    assert resp.status_code == 500
+
+
+def test_retreinar_classificacao_sucesso_chama_servico_com_flags_corretas():
+    payload = _payload_classificacao_fake()
+    payload["fonte_modelo"] = "retreino"
+    payload["modelo_arquivo"] = "logreg_criminalidade_letal_novo.pkl"
+
+    with patch(
+        "api.services.classificacao_service.classificar_criminalidade",
+        return_value=payload,
+    ) as mock_classificar:
+        resp = client.post("/classificacao/retrain")
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["fonte_modelo"] == "retreino"
+    assert body["modelo_arquivo"] == "logreg_criminalidade_letal_novo.pkl"
+
+    mock_classificar.assert_called_once_with(
+        usar_cache=False,
+        forcar_retreino=True,
+        persistir_modelo=True,
+    )
+
+
+def test_retreinar_classificacao_dados_insuficientes_retorna_503():
+    with patch(
+        "api.services.classificacao_service.classificar_criminalidade",
+        side_effect=classificacao_service.DadosInsuficientesError("tabela vazia"),
+    ):
+        resp = client.post("/classificacao/retrain")
+
+    assert resp.status_code == 503
+
+
+def test_retreinar_classificacao_erro_inesperado_retorna_500():
+    with patch(
+        "api.services.classificacao_service.classificar_criminalidade",
+        side_effect=RuntimeError("falha ao treinar"),
+    ):
+        resp = client.post("/classificacao/retrain")
+
+    assert resp.status_code == 500
 
 
 def test_politica_event_loop_aplicada_apenas_no_windows(monkeypatch):

@@ -120,7 +120,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 502 testes, todos passando, **99,65% de cobertura** em `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation`, limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 565 testes, todos passando, **99,23% de cobertura** em `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation`, limiar mínimo de 95% (`--cov-fail-under=95`) |
 | **Testes E2E / Carga da API** | `Karate DSL` (Cucumber/Allure), `Gatling` (Scala/Maven) | Suíte E2E dos endpoints da API em `karate-tests/` e teste de carga com rampa de usuários e asserções de sucesso/p95 em `gatling-tests/` (ver seções próprias) |
 | **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
@@ -179,7 +179,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 
 ## ✅ Qualidade e Testes
 
-- **502 testes** coletados (`pytest`), **todos passando** — **99,65% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Todos os módulos cobertos têm 100% de statements; restam apenas ramos parciais defensivos (ex.: tratamentos de exceção inatingíveis via fluxo normal).
+- **565 testes** coletados (`pytest`), **todos passando** — **99,23% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Todos os módulos cobertos têm 100% de statements; restam apenas ramos parciais defensivos (ex.: tratamentos de exceção inatingíveis via fluxo normal).
 - Relatórios gerados automaticamente em `test_report/`: relatório de testes HTML (`relatorio-testes.html`) + JUnit (`junit.xml`), cobertura técnica (`coverage/index.html` e `coverage.xml`) e **relatório executivo de cobertura** (`cobertura-executiva.html`, gerado por `scripts/gerar_relatorio_cobertura.py` a partir do `.coverage`). A saída completa do pytest pode ser persistida em `logs/testes.log` via `scripts/executar_testes.ps1` — ou use `scripts/executar_testes.bat`, que orquestra o fluxo completo (testes → relatório executivo → abertura dos relatórios no navegador).
 - Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`, `tests/validation`.
 
@@ -267,22 +267,26 @@ api/
 | GET | `/previsao/crimes-contra-mulher` | Previsão híbrida Prophet+XGBoost, servida por padrão a partir do artefato persistido (`horizonte_anos`, `usar_cache`, `persistir_modelo`) |
 | POST | `/previsao/retrain` | Força um novo treino do par Prophet+XGBoost e persiste o bundle resultante (`horizonte_anos`) |
 | GET | `/previsao/modelos` | Lista os modelos já persistidos em `models/*_meta.json` (inclui o campo `formato_artefato`: `bundle` ou `legacy`) |
+| GET | `/classificacao/criminalidade-letal` | Classificação de cada RA/ano como alta/baixa criminalidade letal por Regressão Logística (`usar_cache`), com métricas, odds ratios, matriz de confusão e probabilidade por RA |
+| POST | `/classificacao/retrain` | Força o re-treino da Regressão Logística a partir das tabelas gold mais recentes e persiste o novo artefato em `models/` |
 
 **Persistência do par Prophet+XGBoost (bundle):** `analysis/data_analyzer.py::save_model_with_metadata` aceita um `prophet_model` opcional — quando informado, salva `{xgb_model, prophet_model}` como um único artefato `.pkl` (formato `"bundle"`, registrado em `artifact_format` no `_meta.json`, junto dos `residual_bounds` necessários para prever sem re-treinar). O pipeline batch (`analysis/data_analyzer.py::executar_pipeline`) já salva nesse formato. Artefatos antigos, com apenas o XGBoost (`artifact_format: "legacy"`), continuam podendo ser lidos por `carregar_modelo`, mas não são usados para servir previsão (falta o Prophet).
 
 **Estratégia de serving da API:** `GET /previsao/crimes-contra-mulher` tenta primeiro `analysis.data_analyzer.localizar_ultimo_modelo_bundle` para achar o bundle mais recente em `models/` e servir a previsão diretamente a partir dele (`fonte_modelo: "artefato"` na resposta, sem treinar nada). Se ainda não existir nenhum bundle utilizável (primeira execução, artefato corrompido ou metadados incompletos), a API treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente (`fonte_modelo: "retreino"`); se `persistir_modelo=true`, esse novo treino já é salvo como bundle, disponível para a próxima chamada. Para forçar um novo treino mesmo com um bundle já disponível (ex.: dados gold atualizados), use `POST /previsao/retrain`, que ignora o cache e qualquer artefato existente, treina do zero e sempre persiste o resultado. Um cache em memória de 30 min (`usar_cache`) evita repetir trabalho — seja servindo do artefato, seja re-treinando — a cada requisição idêntica.
 
-Testes: `tests/api/` (47 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
+Testes: `tests/api/` (71 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
 
 ## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
 
-Um painel web em **Streamlit** consome a API e desenha os gráficos com **Plotly**: séries temporais, mapa de calor RA × ano, ranking por RA, previsão Prophet+XGBoost (com métricas e arquivo do modelo) e exploração das tabelas gold. O painel não executa análise própria — apenas reaproveita os endpoints da API.
+Um painel web em **Streamlit** consome a API e desenha os gráficos com **Plotly**: séries temporais, mapa de calor RA × ano, ranking por RA, previsão Prophet+XGBoost (com métricas e arquivo do modelo), classificação de criminalidade letal por RA (Regressão Logística) e exploração das tabelas gold. O painel não executa análise própria — apenas reaproveita os endpoints da API.
 
 A aba **Séries Temporais** mostra o **total consolidado por ano** (soma de todas as RAs) como linha principal, com **RAs selecionáveis** via multiselect para comparação e **média móvel** configurável (janela 1 = desativada). Tanto o seletor de tabelas quanto o de colunas usam **rótulos legíveis em pt-BR** (ex.: `identificacao_crimes_contra_mulher_gold` → "Identificação crimes contra mulher"; `idade_vitima` → "Idade da vítima"), aplicados também aos títulos e eixos dos gráficos.
 
+A aba **Classificação** consome `GET /classificacao/criminalidade-letal` e mostra, para o ano selecionado, o **ranking das RAs pela probabilidade prevista de alta criminalidade letal** (barras coloridas pela classe prevista, com a fronteira de decisão p = 0,50 marcada) e um **mapa de calor RA × ano** da probabilidade. Abaixo, a tabela de classificações e a avaliação do modelo: CV ROC-AUC (média ± desvio), holdout ROC-AUC/F1, odds ratios por feature e matriz de confusão rotulada.
+
 ```
 dashboard/
-├── app.py              # interface Streamlit (abas: Séries Temporais, Mapa de Calor, Previsões, Tabelas)
+├── app.py              # interface Streamlit (abas: Séries Temporais, Mapa de Calor, Idades, Previsões, Classificação, Tabelas)
 ├── api_client.py       # cliente HTTP para a API (requests)
 └── visualizacoes.py    # transformações pandas + figuras Plotly + rótulos pt-BR (funções puras, testáveis)
 ```
@@ -300,11 +304,11 @@ streamlit run dashboard/app.py
 
 A URL da API pode ser alterada na sidebar do próprio painel (padrão: `http://localhost:8000`).
 
-Testes: `tests/dashboard/` (74 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
+Testes: `tests/dashboard/` (97 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
 
 ## 🔁 Testes E2E da API (Karate DSL + Cucumber + Allure — `karate-tests/`)
 
-Suíte de testes **end-to-end** da API de consumo, escrita em **Gherkin (Cucumber)** e executada com **Karate DSL**, com relatório **Allure**. Cobrem `GET /health`, `GET /`, os endpoints de gold (`/gold/tabelas`, `/gold/{tabela}/resumo`, `/gold/{tabela}/dados` com paginação/filtros) e de previsão (`GET /previsao/crimes-contra-mulher`, `GET /previsao/modelos`). O cenário `@retreino` (`POST /previsao/retrain`) treina e persiste um novo bundle do modelo e fica **excluído** por padrão (inclua com `mvn test "-Dkarate.options=--tags @retreino"`).
+Suíte de testes **end-to-end** da API de consumo, escrita em **Gherkin (Cucumber)** e executada com **Karate DSL**, com relatório **Allure**. Cobrem `GET /health`, `GET /`, os endpoints de gold (`/gold/tabelas`, `/gold/{tabela}/resumo`, `/gold/{tabela}/dados` com paginação/filtros), de previsão (`GET /previsao/crimes-contra-mulher`, `GET /previsao/modelos`) e de classificação (`GET /classificacao/criminalidade-letal`). Os cenários `@retreino` (`POST /previsao/retrain` e `POST /classificacao/retrain`) treinam e persistem novos artefatos e ficam **excluídos** por padrão (inclua com `mvn test "-Dkarate.options=--tags @retreino"`).
 
 ```bash
 # Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
@@ -318,7 +322,7 @@ Base URL configurável via `mvn test -Dkarate.env=hml` (ver `karate-tests/README
 
 ## 🏋️ Testes de Carga da API (Gatling — `gatling-tests/`)
 
-Testes de **carga/performance** da API em **Scala** com **Gatling**, cobrindo o fluxo principal do dashboard (health, gold e previsões). Duas simulações:
+Testes de **carga/performance** da API em **Scala** com **Gatling**, cobrindo o fluxo principal do dashboard (health, gold, previsões e classificação). Duas simulações:
 
 - `SmokeSimulation` — uma execução única de cada endpoint, para confirmar que a API responde antes da carga.
 - `ApiCargaSimulation` — rampa de `1` → `5` usuários/s durante 30s, seguida de 30s de carga constante, sobre uma tabela gold aleatória; falha o build se a taxa de sucesso ficar abaixo de **99%** ou o **p95** acima do limite (padrão **4000 ms**, configurável — margem para o overhead da inferência ML na rota de previsão).

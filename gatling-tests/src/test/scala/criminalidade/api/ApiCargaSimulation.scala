@@ -9,8 +9,9 @@ import scala.concurrent.duration._
  * Teste de carga da API de consumo (camada Gold + previsões).
  *
  * Simula usuários executando o fluxo principal do dashboard: health, listagem
- * de tabelas, resumo e dados paginados de uma tabela gold (aleatória) e as
- * previsões de crimes contra a mulher.
+ * de tabelas, resumo e dados paginados de uma tabela gold (aleatória), as
+ * previsões de crimes contra a mulher e a classificação de criminalidade
+ * letal por Regressão Logística.
  *
  * Parâmetros (propriedades do sistema, todos opcionais):
  *   -Dapi.baseUrl=...              base da API (padrão: http://localhost:8000)
@@ -50,7 +51,7 @@ class ApiCargaSimulation extends Simulation {
 
   private val tabelaAleatoria = Iterator.continually(Map("tabela" -> tabelas(scala.util.Random.nextInt(tabelas.size))))
 
-  private val leitura = scenario("Leitura de dados (gold + previsoes)")
+  private val leitura = scenario("Leitura de dados (gold + previsoes + classificacao)")
     .feed(tabelaAleatoria)
     .exec(
       http("GET /health")
@@ -77,7 +78,7 @@ class ApiCargaSimulation extends Simulation {
         .queryParam("tamanho_pagina", "50")
         .queryParam("ano_min", "2015")
         .queryParam("ano_max", "2025")
-        .check(status.is(200), jsonPath("$.registros").count.gte(1))
+        .check(status.is(200), jsonPath("$.registros[*]").count.gte(1))
     )
     .pause(1, 2)
     .exec(
@@ -91,6 +92,17 @@ class ApiCargaSimulation extends Simulation {
       http("GET /previsao/modelos")
         .get("/previsao/modelos")
         .check(status.is(200), jsonPath("$.total").exists)
+    )
+    .pause(1)
+    .exec(
+      http("GET /classificacao/criminalidade-letal")
+        .get("/classificacao/criminalidade-letal")
+        .check(
+          status.is(200),
+          jsonPath("$.fonte_modelo").in("artefato", "retreino"),
+          jsonPath("$.total_registros").gt("0"),
+          jsonPath("$.classificacoes[*]").count.gte(1)
+        )
     )
 
   setUp(

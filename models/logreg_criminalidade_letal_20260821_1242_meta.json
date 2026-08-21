@@ -1,0 +1,61 @@
+{
+    "created_at": "2026-08-21T12:42:07.759834",
+    "model_file": "logreg_criminalidade_letal_20260821_1242.pkl",
+    "model_type": "Pipeline",
+    "artifact_format": "pipeline",
+    "metrics": {
+        "cv_roc_auc_media": 0.9939666036546946,
+        "cv_roc_auc_std": 0.006919061744169411,
+        "holdout_accuracy": 0.9615384615384616,
+        "holdout_precision": 0.9743589743589743,
+        "holdout_recall": 0.95,
+        "holdout_f1": 0.9620253164556962,
+        "holdout_roc_auc": 0.9973684210526316
+    },
+    "hyperparameters": {
+        "max_iter": 1000,
+        "random_state": 42,
+        "test_size": 0.25,
+        "cv_folds": 5
+    },
+    "features": [
+        "taxa_homicidio",
+        "taxa_latrocinio",
+        "taxa_lesao_morte",
+        "log_populacao",
+        "ano_num"
+    ],
+    "target": "alta_criminalidade",
+    "dataset_info": {},
+    "extra": {
+        "odds_ratios": {
+            "taxa_homicidio": 198.71458167101878,
+            "taxa_latrocinio": 2.8552622977846944,
+            "taxa_lesao_morte": 1.3518751317388384,
+            "log_populacao": 1.0467750258170971,
+            "ano_num": 0.8758336192035359
+        },
+        "coeficientes": {
+            "taxa_homicidio": 5.291869532225131,
+            "taxa_latrocinio": 1.0491637120173862,
+            "taxa_lesao_morte": 0.3014926151741603,
+            "log_populacao": 0.045714033744144,
+            "ano_num": -0.13257913850124614
+        },
+        "intercepto": 1.5569420588914304,
+        "matriz_confusao": [
+            [
+                37,
+                1
+            ],
+            [
+                2,
+                38
+            ]
+        ],
+        "tamanhos_treino_teste": {
+            "treino": 232,
+            "teste": 78
+        }
+    }
+}

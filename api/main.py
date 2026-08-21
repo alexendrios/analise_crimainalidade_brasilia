@@ -19,7 +19,7 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import gold, previsao
+from api.routers import classificacao, gold, previsao
 from api.schemas import HealthResponse
 from database.repository.repository import listar_tabelas
 from util.log import logs
@@ -36,8 +36,9 @@ app = FastAPI(
     title="API - Criminalidade Brasília/DF",
     description=(
         "API de consumo dos dados de criminalidade do Distrito Federal "
-        "(camada Gold do lakehouse) e das previsões do modelo híbrido "
-        "Prophet + XGBoost."
+        "(camada Gold do lakehouse), das previsões do modelo híbrido "
+        "Prophet + XGBoost e da classificação de criminalidade letal por "
+        "Regressão Logística."
     ),
     version="1.0.0",
 )
@@ -55,6 +56,7 @@ app.add_middleware(
 
 app.include_router(gold.router)
 app.include_router(previsao.router)
+app.include_router(classificacao.router)
 
 
 @app.get("/", include_in_schema=False)

@@ -5,17 +5,22 @@ import pytest
 from dashboard.visualizacoes import (
     COLUNAS_IDADES,
     SemDadosParaGraficoError,
+    classificacao_para_dataframe,
     coluna_ano_disponivel,
     colunas_categoricas,
     colunas_numericas,
     colunas_valor_indicadores,
+    figura_heatmap_probabilidade,
     figura_heatmap_ra_ano,
     figura_historico_idades,
     figura_previsao,
+    figura_ranking_probabilidade,
     figura_ranking_ra,
     figura_serie_temporal,
     figura_serie_temporal_categorica,
+    matriz_confusao_para_dataframe,
     modelos_para_dataframe,
+    odds_ratios_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
     rotulo_coluna,
@@ -299,3 +304,111 @@ def test_figura_serie_temporal_categorica_media_movel_dobra_traces():
     fig = figura_serie_temporal_categorica(df, "meio_utilizado", janela_media_movel=2)
     assert len(fig.data) == 4  # 2 categorias + 2 médias móveis
     assert any("média móvel" in t.name for t in fig.data)
+
+
+# =========================================================
+# Classificação — criminalidade letal por RA (Regressão Logística)
+# =========================================================
+
+def _payload_classificacao():
+    return {
+        "classificacoes": [
+            {"regiao_administrativa": "Taguatinga", "ano": 2024,
+             "classe_prevista": 1, "rotulo_previsto": "alta", "probabilidade_alta": 0.92},
+            {"regiao_administrativa": "Ceilândia", "ano": 2024,
+             "classe_prevista": 0, "rotulo_previsto": "baixa", "probabilidade_alta": 0.21},
+            {"regiao_administrativa": "Taguatinga", "ano": 2023,
+             "classe_prevista": 1, "rotulo_previsto": "alta", "probabilidade_alta": 0.88},
+            {"regiao_administrativa": "Ceilândia", "ano": 2023,
+             "classe_prevista": 0, "rotulo_previsto": "baixa", "probabilidade_alta": 0.35},
+        ],
+        "odds_ratios": {
+            "ano_num": 0.88,
+            "taxa_homicidio": 199.4,
+            "log_populacao": 0.9,
+        },
+        "matriz_confusao": [[40, 2], [1, 42]],
+        "limiar_taxa_mediana": 10.66,
+    }
+
+
+def test_classificacao_para_dataframe_vazio():
+    assert classificacao_para_dataframe({"classificacoes": []}).empty
+    assert classificacao_para_dataframe({}).empty
+
+
+def test_classificacao_para_dataframe_converte_registros():
+    df = classificacao_para_dataframe(_payload_classificacao())
+    assert list(df.columns) == [
+        "regiao_administrativa", "ano", "classe_prevista",
+        "rotulo_previsto", "probabilidade_alta",
+    ]
+    assert len(df) == 4
+
+
+def test_figura_ranking_probabilidade_usa_ultimo_ano_por_padrao():
+    fig = figura_ranking_probabilidade(_payload_classificacao())
+
+    assert isinstance(fig, go.Figure)
+    assert len(fig.data[0].y) == 2  # apenas o ano mais recente (2024)
+    assert set(fig.data[0].y) == {"Taguatinga", "Ceilândia"}
+    # ordenado crescente para barras horizontais: menor probabilidade embaixo
+    assert list(fig.data[0].x) == sorted(fig.data[0].x)
+
+
+def test_figura_ranking_probabilidade_com_ano_especifico():
+    fig = figura_ranking_probabilidade(_payload_classificacao(), ano=2023)
+
+    assert len(fig.data[0].y) == 2
+
+
+def test_figura_ranking_probabilidade_sem_dados_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="não contém registros"):
+        figura_ranking_probabilidade({})
+
+    with pytest.raises(SemDadosParaGraficoError, match="ano 1999"):
+        figura_ranking_probabilidade(_payload_classificacao(), ano=1999)
+
+
+def test_figura_heatmap_probabilidade_monta_matriz_ra_ano():
+    fig = figura_heatmap_probabilidade(_payload_classificacao())
+
+    assert isinstance(fig, go.Figure)
+    z = fig.data[0].z
+    assert len(z) == 2  # 2 RAs
+    assert all(len(linha) == 2 for linha in z)  # 2 anos
+    assert list(fig.data[0].x) == [2023, 2024]
+
+
+def test_figura_heatmap_probabilidade_sem_dados_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="não contém registros"):
+        figura_heatmap_probabilidade({})
+
+
+def test_odds_ratios_para_dataframe_ordenado_e_rotulado():
+    df = odds_ratios_para_dataframe(_payload_classificacao())
+
+    assert list(df.columns) == ["Indicador", "Odds ratio"]
+    valores = list(df["Odds ratio"])
+    assert valores == sorted(valores, reverse=True)
+    assert df.iloc[0]["Indicador"] == "Taxa de homicídio"
+
+
+def test_odds_ratios_para_dataframe_vazio():
+    assert odds_ratios_para_dataframe({}).empty
+
+
+def test_matriz_confusao_para_dataframe_rotulada():
+    df = matriz_confusao_para_dataframe(_payload_classificacao())
+
+    assert list(df.columns) == ["previsto: baixa", "previsto: alta"]
+    assert list(df.index) == ["real: baixa", "real: alta"]
+    assert df.iloc[0, 0] == 40 and df.iloc[1, 1] == 42
+
+
+def test_matriz_confusao_malformada_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="formato inesperado"):
+        matriz_confusao_para_dataframe({"matriz_confusao": [[1, 2, 3], [4, 5, 6]]})
+
+    with pytest.raises(SemDadosParaGraficoError, match="formato inesperado"):
+        matriz_confusao_para_dataframe({})

@@ -9,6 +9,7 @@ from dashboard.api_client import (
     health,
     listar_modelos,
     listar_tabelas,
+    obter_classificacao,
     obter_dados,
     obter_previsao,
     obter_resumo,
@@ -101,6 +102,27 @@ def test_listar_modelos_retorna_lista():
     payload = {"total": 1, "modelos": [{"arquivo": "x.pkl"}]}
     with patch("dashboard.api_client.requests.get", return_value=_resposta_ok(payload)):
         assert listar_modelos()[0]["arquivo"] == "x.pkl"
+
+
+def test_obter_classificacao_envia_params_e_caminho():
+    with patch(
+        "dashboard.api_client.requests.get",
+        return_value=_resposta_ok({"classificacoes": []}),
+    ) as mock_get:
+        obter_classificacao(usar_cache=False)
+
+    assert mock_get.call_args[1]["params"] == {"usar_cache": "false"}
+    assert "/classificacao/criminalidade-letal" in mock_get.call_args[0][0]
+
+
+def test_obter_classificacao_cache_padrao():
+    with patch(
+        "dashboard.api_client.requests.get",
+        return_value=_resposta_ok({"classificacoes": []}),
+    ) as mock_get:
+        obter_classificacao()
+
+    assert mock_get.call_args[1]["params"] == {"usar_cache": "true"}
 
 
 def test_erro_de_rede_levanta_api_error():

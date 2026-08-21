@@ -15,12 +15,16 @@ data/*
 !data/.gitkeep
 logs/
 !logs/.gitkeep
+analysis/outputs/
+.opencode/*
+.github/*
 
 
 # Arquivos temporários gerais
 *.log
 *.tmp
 *.bak
+
 
 # Configurações de IDEs
 .vscode/

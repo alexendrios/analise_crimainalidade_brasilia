@@ -39,6 +39,8 @@ karate-tests/
 │           └── previsao/
 │               ├── crimes_contra_mulher.feature  # GET /previsao/crimes-contra-mulher
 │               └── modelos.feature      # GET /previsao/modelos
+│           └── classificacao/
+│               └── criminalidade_letal.feature  # GET /classificacao/criminalidade-letal e POST /classificacao/retrain
 ```
 
 ## Como rodar
@@ -67,8 +69,9 @@ allure serve target/allure-results
 
 ### Cenários de retreino
 
-O cenário `@retreino` (`POST /previsao/retrain`) treina e persiste um novo
-bundle do modelo em `models/` — é **excluído** por padrão. Para incluí-lo:
+Os cenários `@retreino` (`POST /previsao/retrain` e
+`POST /classificacao/retrain`) treinam e persistem novos artefatos em
+`models/` — são **excluídos** por padrão. Para incluí-los:
 
 ```bash
 mvn test -Dkarate.options="--tags @retreino"

@@ -2,8 +2,9 @@
 
 Testes de **carga/performance** da API de consumo (`api/`) do projeto
 Criminalidade Brasília/DF, escritos em **Scala** com **Gatling**. Cobrem o
-fluxo principal do dashboard: health, tabelas gold, resumo, dados paginados e
-previsões de crimes contra a mulher.
+fluxo principal do dashboard: health, tabelas gold, resumo, dados paginados,
+previsões de crimes contra a mulher e classificação de criminalidade letal
+por Regressão Logística.
 
 ## Pré-requisitos
 
@@ -57,7 +58,9 @@ Todos opcionais (propriedades do sistema):
 
 > **Nota de capacidade:** os padrões originais (`usuariosFinais=20`, `duracaoCargaSegundos=60`,
 > `p95LimiteMs=1000`) derrubavam a API local sob alta concorrência e foram ajustados para os
-> valores acima, que a API sustenta estável com o endpoint de previsão no fluxo.
+> valores acima, que a API sustenta estável com os endpoints de previsão e classificação no fluxo.
+> A rota de classificação usa cache em memória (30 min), então após a primeira chamada ela
+> responde sem recarregar o banco nem re-executar inferência.
 
 Exemplo de uma execução curta:
 

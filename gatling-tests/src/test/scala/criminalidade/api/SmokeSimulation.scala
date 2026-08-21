@@ -43,20 +43,31 @@ class SmokeSimulation extends Simulation {
       http("GET /gold/{tabela}/dados")
         .get("/gold/crimes_letais_gold/dados")
         .queryParam("tamanho_pagina", "10")
-        .check(status.is(200), jsonPath("$.registros").count.gte(1))
+        .check(status.is(200), jsonPath("$.registros[*]").count.gte(1))
     )
     .pause(1)
     .exec(
       http("GET /previsao/crimes-contra-mulher")
         .get("/previsao/crimes-contra-mulher")
         .queryParam("horizonte_anos", "2")
-        .check(status.is(200), jsonPath("$.previsao").count.is(2))
+        .check(status.is(200), jsonPath("$.previsao[*]").count.is(2))
     )
     .pause(1)
     .exec(
       http("GET /previsao/modelos")
         .get("/previsao/modelos")
         .check(status.is(200), jsonPath("$.total").gt("0"))
+    )
+    .pause(1)
+    .exec(
+      http("GET /classificacao/criminalidade-letal")
+        .get("/classificacao/criminalidade-letal")
+        .check(
+          status.is(200),
+          jsonPath("$.fonte_modelo").in("artefato", "retreino"),
+          jsonPath("$.total_registros").gt("0"),
+          jsonPath("$.classificacoes[*]").count.gte(1)
+        )
     )
 
   setUp(fluxo.inject(atOnceUsers(1))).protocols(httpProtocol)

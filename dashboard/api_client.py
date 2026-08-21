@@ -106,3 +106,13 @@ def listar_modelos(base_url: str = DEFAULT_BASE_URL) -> List[Dict[str, Any]]:
     """Lista os modelos já treinados e persistidos em models/."""
     payload = _get(base_url, "/previsao/modelos")
     return list(payload.get("modelos") or [])
+
+
+def obter_classificacao(
+    usar_cache: bool = True,
+    base_url: str = DEFAULT_BASE_URL,
+) -> Dict[str, Any]:
+    """Retorna a classificação de criminalidade letal por RA
+    (Regressão Logística, endpoint /classificacao/criminalidade-letal)."""
+    params: Dict[str, Any] = {"usar_cache": str(usar_cache).lower()}
+    return _get(base_url, "/classificacao/criminalidade-letal", params=params)

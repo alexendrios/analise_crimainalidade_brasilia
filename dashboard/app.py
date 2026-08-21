@@ -31,6 +31,7 @@ from dashboard.api_client import (
     health,
     listar_modelos,
     listar_tabelas,
+    obter_classificacao,
     obter_dados,
     obter_previsao,
     obter_resumo,
@@ -38,16 +39,21 @@ from dashboard.api_client import (
 from dashboard.visualizacoes import (
     COLUNAS_IDADES,
     SemDadosParaGraficoError,
+    classificacao_para_dataframe,
     coluna_ano_disponivel,
     colunas_categoricas,
     colunas_numericas,
+    figura_heatmap_probabilidade,
     figura_heatmap_ra_ano,
     figura_historico_idades,
     figura_previsao,
+    figura_ranking_probabilidade,
     figura_ranking_ra,
     figura_serie_temporal,
     figura_serie_temporal_categorica,
+    matriz_confusao_para_dataframe,
     modelos_para_dataframe,
+    odds_ratios_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
     rotulo_coluna,
@@ -267,6 +273,85 @@ def _aba_previsoes(base_url: str) -> None:
         st.caption("Nenhum modelo persistido em models/ ainda.")
 
 
+def _aba_classificacao(base_url: str) -> None:
+    st.subheader("Classificação — Criminalidade Letal por RA (Regressão Logística)")
+
+    try:
+        payload = obter_classificacao(base_url=base_url)
+    except ApiError as exc:
+        st.error(f"Não foi possível obter a classificação: {exc}")
+        return
+
+    periodo = payload.get("periodo") or []
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Fonte do modelo", payload.get("fonte_modelo") or "—")
+    col2.metric("Registros analisados", payload.get("total_registros"))
+    col3.metric("Regiões administrativas", payload.get("total_ras"))
+    col4.metric(
+        "Limiar (taxa/100 mil)",
+        round(payload.get("limiar_taxa_mediana"), 2) if payload.get("limiar_taxa_mediana") else None,
+    )
+
+    detalhes = [f"Período: {periodo[0]}–{periodo[-1]}" if len(periodo) == 2 else ""]
+    if payload.get("modelo_arquivo"):
+        detalhes.append(f"Arquivo de modelo: {payload['modelo_arquivo']}")
+    legenda = " • ".join(d for d in detalhes if d)
+    if legenda:
+        st.caption(legenda)
+
+    df_class = classificacao_para_dataframe(payload)
+    if df_class.empty:
+        st.info("A resposta de classificação não contém classificações.")
+        return
+
+    anos = sorted(int(a) for a in df_class["ano"].dropna().unique())
+    ano = st.selectbox(
+        "Ano do ranking", list(reversed(anos)), key="classe_ano",
+        format_func=lambda a: f"{a} (mais recente)" if anos and a == max(anos) else str(a),
+    )
+
+    try:
+        st.plotly_chart(figura_ranking_probabilidade(payload, ano=ano), width="stretch")
+    except SemDadosParaGraficoError as exc:
+        st.warning(str(exc))
+
+    try:
+        st.plotly_chart(figura_heatmap_probabilidade(payload), width="stretch")
+    except SemDadosParaGraficoError as exc:
+        st.warning(str(exc))
+
+    st.markdown("### Classificações por RA e ano")
+    st.dataframe(df_class.rename(columns=rotulo_coluna), width="stretch", height=420)
+
+    st.divider()
+    st.markdown("### Avaliação do modelo")
+    metricas = payload.get("metricas") or {}
+    auc_media = metricas.get("cv_roc_auc_media")
+    auc_std = metricas.get("cv_roc_auc_std")
+    roc_holdout = metricas.get("holdout_roc_auc")
+    f1_holdout = metricas.get("holdout_f1")
+    col1, col2, col3 = st.columns(3)
+    col1.metric(
+        "CV ROC-AUC",
+        f"{auc_media:.3f} ± {auc_std:.3f}" if auc_media is not None and auc_std is not None else None,
+    )
+    col2.metric(
+        "Holdout ROC-AUC", round(roc_holdout, 3) if roc_holdout is not None else None
+    )
+    col3.metric("Holdout F1", round(f1_holdout, 3) if f1_holdout is not None else None)
+
+    col_esq, col_dir = st.columns(2)
+    with col_esq:
+        st.markdown("**Odds ratios (exp coeficientes)**")
+        st.dataframe(odds_ratios_para_dataframe(payload), width="stretch")
+    with col_dir:
+        st.markdown("**Matriz de confusão**")
+        try:
+            st.dataframe(matriz_confusao_para_dataframe(payload), width="stretch")
+        except SemDadosParaGraficoError as exc:
+            st.warning(str(exc))
+
+
 def _aba_tabelas(base_url: str) -> None:
     st.subheader("Explorar Tabelas Gold")
     tabelas = [t["nome"] for t in listar_tabelas(base_url)]
@@ -324,8 +409,8 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_series, aba_mapa, aba_idades, aba_previsoes, aba_tabelas = st.tabs(
-        ["Séries Temporais", "Mapa de Calor", "Idades", "Previsões", "Tabelas"]
+    aba_series, aba_mapa, aba_idades, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
+        ["Séries Temporais", "Mapa de Calor", "Idades", "Previsões", "Classificação", "Tabelas"]
     )
 
     try:
@@ -337,6 +422,8 @@ def main() -> None:
             _aba_idades(base_url)
         with aba_previsoes:
             _aba_previsoes(base_url)
+        with aba_classificacao:
+            _aba_classificacao(base_url)
         with aba_tabelas:
             _aba_tabelas(base_url)
     except ApiError as exc:

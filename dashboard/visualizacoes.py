@@ -26,6 +26,15 @@ ROTULOS_COLUNAS = {
     "local": "Local",
     "motivacao": "Motivação",
     "data_do_crime": "Data do crime",
+    "probabilidade_alta": "P(alta criminalidade)",
+    "classe_prevista": "Classe prevista",
+    "rotulo_previsto": "Rótulo previsto",
+    # features da Regressão Logística (odds ratios)
+    "taxa_homicidio": "Taxa de homicídio",
+    "taxa_latrocinio": "Taxa de latrocínio",
+    "taxa_lesao_morte": "Taxa de lesão seguida de morte",
+    "log_populacao": "Log da população",
+    "ano_num": "Ano (numérico)",
 }
 
 
@@ -420,4 +429,118 @@ def modelos_para_dataframe(modelos: List[Dict[str, Any]]) -> pd.DataFrame:
             }
             for modelo in modelos
         ]
+    )
+
+
+# =========================================================
+# Classificação — criminalidade letal por RA (Regressão Logística)
+# =========================================================
+
+CORES_CLASSE = {1: "firebrick", 0: "#7f8c8d"}
+
+
+def classificacao_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
+    """Converte a lista de classificações da API em DataFrame."""
+    return pd.DataFrame(payload.get("classificacoes") or [])
+
+
+def figura_ranking_probabilidade(payload: Dict[str, Any], ano: Optional[int] = None) -> go.Figure:
+    """
+    Ranking das RAs pela probabilidade prevista de alta criminalidade letal
+    em `ano` (padrão: o mais recente da resposta). Barras coloridas pela
+    classe prevista e linha vertical na fronteira de decisão (p = 0,50).
+    """
+    df = classificacao_para_dataframe(payload)
+    if df.empty:
+        raise SemDadosParaGraficoError("A resposta de classificação não contém registros.")
+
+    if ano is None:
+        ano = int(df["ano"].max())
+    dados = df[df["ano"] == ano]
+    if dados.empty:
+        raise SemDadosParaGraficoError(f"Não há classificações para o ano {ano}.")
+
+    dados = dados.sort_values("probabilidade_alta", ascending=True)
+    cores = [CORES_CLASSE.get(int(c), "#7f8c8d") for c in dados["classe_prevista"]]
+
+    fig = go.Figure(
+        go.Bar(
+            x=dados["probabilidade_alta"],
+            y=[str(ra) for ra in dados["regiao_administrativa"]],
+            orientation="h",
+            marker_color=cores,
+            customdata=list(zip(dados["rotulo_previsto"], dados["classe_prevista"])),
+            hovertemplate=(
+                "RA: %{y}<br>P(alta): %{x:.3f}"
+                "<br>Classe: %{customdata[0]} (%{customdata[1]})"
+                "<extra></extra>"
+            ),
+        )
+    )
+    fig.add_vline(x=0.5, line_dash="dot", line_color="#444", annotation_text="fronteira de decisão")
+    fig.update_layout(
+        title=f"P(alta criminalidade letal) por RA — ano {ano}",
+        xaxis_title="P(alta criminalidade)",
+        xaxis_range=[0, 1],
+        yaxis_title="Região Administrativa",
+        height=560,
+        template="plotly_white",
+    )
+    return fig
+
+
+def figura_heatmap_probabilidade(payload: Dict[str, Any]) -> go.Figure:
+    """Mapa de calor RA × ano da probabilidade prevista de alta criminalidade."""
+    df = classificacao_para_dataframe(payload)
+    if df.empty:
+        raise SemDadosParaGraficoError("A resposta de classificação não contém registros.")
+
+    tabela = (
+        df.groupby(["regiao_administrativa", "ano"], as_index=False)["probabilidade_alta"]
+        .mean()
+        .pivot(index="regiao_administrativa", columns="ano", values="probabilidade_alta")
+    )
+    tabela = tabela.sort_index()
+
+    fig = go.Figure(
+        go.Heatmap(
+            z=tabela.values,
+            x=[int(v) for v in tabela.columns],
+            y=[str(ra) for ra in tabela.index],
+            colorscale="RdBu_r",
+            zmin=0,
+            zmax=1,
+            hovertemplate="RA: %{y}<br>Ano: %{x}<br>P(alta): %{z:.3f}<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="Probabilidade de alta criminalidade letal por RA e ano",
+        xaxis_title="Ano",
+        yaxis_title="Região Administrativa",
+        height=520,
+        template="plotly_white",
+    )
+    return fig
+
+
+def odds_ratios_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
+    """Converte os odds ratios do payload em DataFrame ordenado (desc)."""
+    ratios = payload.get("odds_ratios") or {}
+    return pd.DataFrame(
+        [
+            {"Indicador": rotulo_coluna(feature), "Odds ratio": round(float(valor), 3)}
+            for feature, valor in sorted(ratios.items(), key=lambda item: item[1], reverse=True)
+        ]
+    )
+
+
+def matriz_confusao_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
+    """Matriz de confusão 2×2 rotulada como DataFrame; erro se o formato for inesperado."""
+    matriz = payload.get("matriz_confusao") or []
+    if len(matriz) != 2 or any(len(linha) != 2 for linha in matriz):
+        raise SemDadosParaGraficoError("A matriz de confusão da resposta tem formato inesperado.")
+    return pd.DataFrame(
+        matriz,
+        index=["real: baixa", "real: alta"],
+        columns=["previsto: baixa", "previsto: alta"],
     )
