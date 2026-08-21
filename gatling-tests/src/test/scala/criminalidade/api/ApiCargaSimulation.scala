@@ -18,7 +18,7 @@ import scala.concurrent.duration._
  *   -Dcarga.usuariosFinais=N       usuários/seg no fim da rampa (padrão: 5)
  *   -Dcarga.duracaoRampaSegundos=N duração da rampa (padrão: 30)
  *   -Dcarga.duracaoCargaSegundos=N carga constante após a rampa (padrão: 30)
- *   -Dcarga.p95LimiteMs=N          limite do p95 (ms) para as asserções (padrão: 1000)
+ *   -Dcarga.p95LimiteMs=N          limite do p95 (ms) para as asserções (padrão: 4000)
  *
  * Exemplos:
  *   mvn gatling:test

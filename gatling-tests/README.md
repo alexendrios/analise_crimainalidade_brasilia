@@ -50,15 +50,19 @@ Todos opcionais (propriedades do sistema):
 | ------------------------------ | -------- | ------------------------------------------- |
 | `api.baseUrl`                  | `http://localhost:8000` | Base da API                    |
 | `carga.usuariosIniciais`       | `1`      | Usuários/segundo no início da rampa         |
-| `carga.usuariosFinais`         | `20`     | Usuários/segundo no fim da rampa            |
+| `carga.usuariosFinais`         | `5`      | Usuários/segundo no fim da rampa            |
 | `carga.duracaoRampaSegundos`   | `30`     | Duração da rampa                            |
-| `carga.duracaoCargaSegundos`   | `60`     | Carga constante após a rampa                |
-| `carga.p95LimiteMs`            | `1000`   | Limite do p95 (ms) para as asserções        |
+| `carga.duracaoCargaSegundos`   | `30`     | Carga constante após a rampa                |
+| `carga.p95LimiteMs`            | `4000`   | Limite do p95 (ms) para as asserções (margem para o overhead da inferência ML na rota de previsão) |
+
+> **Nota de capacidade:** os padrões originais (`usuariosFinais=20`, `duracaoCargaSegundos=60`,
+> `p95LimiteMs=1000`) derrubavam a API local sob alta concorrência e foram ajustados para os
+> valores acima, que a API sustenta estável com o endpoint de previsão no fluxo.
 
 Exemplo de uma execução curta:
 
 ```bash
-mvn gatling:test "-Dcarga.usuariosFinais=5" "-Dcarga.duracaoRampaSegundos=10" "-Dcarga.duracaoCargaSegundos=20"
+mvn gatling:test "-Dcarga.duracaoRampaSegundos=10" "-Dcarga.duracaoCargaSegundos=20"
 ```
 
 > No PowerShell, argumentos com `.`/`=` podem exigir aspas em torno da

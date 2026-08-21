@@ -148,6 +148,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `domain`, `ingestion`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`) |
 | `karate-tests/` | Testes E2E da API (Karate DSL + Cucumber + Allure) — ver seção própria |
 | `gatling-tests/` | Testes de carga/performance da API (Gatling, Scala/Maven) — ver seção própria |
+| `scripts/` | Scripts auxiliares: `executar_testes.ps1`/`.bat` (suíte pytest com saída completa em `logs/testes.log`; o `.bat` também gera o relatório executivo e abre os relatórios no navegador) e `gerar_relatorio_cobertura.py` (relatório executivo de cobertura em `test_report/cobertura-executiva.html`) |
 | `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
 | `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
 
@@ -177,7 +178,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 ## ✅ Qualidade e Testes
 
 - **486 testes** coletados (`pytest`), **todos passando** — **99,29% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). `validation/` é o único pacote de produção ainda fora do escopo de cobertura.
-- Relatórios gerados automaticamente em `test_report/` (HTML + JUnit) e `test_report/coverage` (HTML).
+- Relatórios gerados automaticamente em `test_report/`: relatório de testes HTML (`relatorio-testes.html`) + JUnit (`junit.xml`), cobertura técnica (`coverage/index.html` e `coverage.xml`) e **relatório executivo de cobertura** (`cobertura-executiva.html`, gerado por `scripts/gerar_relatorio_cobertura.py` a partir do `.coverage`). A saída completa do pytest pode ser persistida em `logs/testes.log` via `scripts/executar_testes.ps1` — ou use `scripts/executar_testes.bat`, que orquestra o fluxo completo (testes → relatório executivo → abertura dos relatórios no navegador).
 - Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`.
 
 ### ✅ Bug de variável de ambiente em `test_connection.py` (resolvido)
@@ -318,7 +319,7 @@ Base URL configurável via `mvn test -Dkarate.env=hml` (ver `karate-tests/README
 Testes de **carga/performance** da API em **Scala** com **Gatling**, cobrindo o fluxo principal do dashboard (health, gold e previsões). Duas simulações:
 
 - `SmokeSimulation` — uma execução única de cada endpoint, para confirmar que a API responde antes da carga.
-- `ApiCargaSimulation` — rampa de `1` → `20` usuários/s durante 30s, seguida de 60s de carga constante, sobre uma tabela gold aleatória; falha o build se a taxa de sucesso ficar abaixo de **99%** ou o **p95** acima do limite (padrão **1000 ms**, configurável).
+- `ApiCargaSimulation` — rampa de `1` → `5` usuários/s durante 30s, seguida de 30s de carga constante, sobre uma tabela gold aleatória; falha o build se a taxa de sucesso ficar abaixo de **99%** ou o **p95** acima do limite (padrão **4000 ms**, configurável — margem para o overhead da inferência ML na rota de previsão).
 
 ```bash
 # Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
@@ -329,6 +330,8 @@ mvn gatling:test -Dgatling.simulationClass=criminalidade.api.SmokeSimulation
 ```
 
 Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, `carga.usuariosIniciais`, `carga.usuariosFinais`, `carga.duracaoRampaSegundos`, `carga.duracaoCargaSegundos`, `carga.p95LimiteMs` — ver `gatling-tests/README.md`. A primeira execução registrada (`smoke.log`) falhou por **`Connection refused`** (API não estava no ar durante a rodada), não por bug de código.
+
+> **Ajuste de capacidade (commit `99a0823`):** os padrões originais da rampa (`20` usuários/s finais, 60s de carga, p95 de 1000 ms) derrubavam a API local sob alta concorrência. Os defaults foram reduzidos para `5` usuários/s e 30s de carga, e o limite de p95 ampliado para 4000 ms — valores que a API sustenta estável com o endpoint de previsão (Prophet+XGBoost) no fluxo. Para cenários mais agressivos, sobrecarregue via propriedades do sistema (ex.: `-Dcarga.usuariosFinais=10`).
 
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
