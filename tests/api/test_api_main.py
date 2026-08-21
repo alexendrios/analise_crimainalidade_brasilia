@@ -263,3 +263,20 @@ def test_modelos_treinados():
 
     assert resp.status_code == 200
     assert resp.json() == payload
+
+
+def test_politica_event_loop_aplicada_apenas_no_windows(monkeypatch):
+    """Cobre o ramo em que sys.platform != 'win32' (a politica do Windows
+    nao e aplicada). Recarrega o modulo e restaura o estado original."""
+    import importlib
+    import sys
+
+    import api.main as modulo_api
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    try:
+        recarregado = importlib.reload(modulo_api)
+        assert recarregado.app is not None
+    finally:
+        monkeypatch.undo()
+        importlib.reload(modulo_api)

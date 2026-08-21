@@ -34,7 +34,7 @@ test_report/
 test_report/*
 
 # Testes E2E (Karate/Maven)
-karate-tests/target/
+karate-tests/target/*
 
 # Testes de carga (Gatling/Maven)
-gatling-tests/target/
+gatling-tests/target/*

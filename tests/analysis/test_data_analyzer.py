@@ -188,6 +188,16 @@ def test_localizar_ultimo_modelo_bundle_ignora_meta_sem_pkl_correspondente(tmp_p
     assert meta is None
 
 
+def test_localizar_ultimo_modelo_bundle_ignora_meta_sem_model_file(tmp_path):
+    meta = {"artifact_format": "bundle", "created_at": "2026-06-01T00:00:00"}
+    (tmp_path / "sem_model_file_meta.json").write_text(json.dumps(meta), encoding="utf-8")
+
+    model_path, meta = localizar_ultimo_modelo_bundle(str(tmp_path))
+
+    assert model_path is None
+    assert meta is None
+
+
 def test_localizar_ultimo_modelo_bundle_ignora_json_corrompido(tmp_path):
     (tmp_path / "corrompido_meta.json").write_text("{ nao é json", encoding="utf-8")
 

@@ -443,3 +443,53 @@ def test_app_serie_categorica_renderiza_grafico():
 
     assert not at.exception
     assert len(at.get("plotly_chart")) >= 1
+
+
+def test_app_serie_categorica_sem_colunas_categoricas_avisa_usuario():
+    """Tabela só com colunas numéricas + RA: modo categórico não tem o que mostrar."""
+    pads = [
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA]),
+        patch("dashboard.api_client.obter_dados", return_value=DADOS),
+        patch("dashboard.api_client.obter_resumo", return_value=RESUMO),
+        patch("dashboard.api_client.listar_modelos", return_value=[]),
+    ]
+    with _entrar(pads):
+        at = _rodar()
+        at.selectbox(key="serie_modo").select("Contagem por categoria").run()
+
+    assert not at.exception
+    assert any(
+        "colunas categóricas" in info.value for info in at.info
+    )
+
+
+def test_app_mapa_ranking_sem_dados_avisa_usuario():
+    from dashboard.visualizacoes import SemDadosParaGraficoError
+
+    with _entrar(_pads()):
+        at = _rodar()
+        with patch(
+            "dashboard.visualizacoes.figura_ranking_ra",
+            side_effect=SemDadosParaGraficoError("sem dados para o ranking"),
+        ):
+            at.selectbox(key="mapa_coluna").select("crimes").run()
+
+    assert not at.exception
+    assert any("sem dados para o ranking" in w.value for w in at.warning)
+
+
+def test_app_importado_fora_do_windows_nao_aplica_politica_e_nao_executa_main(monkeypatch):
+    """Cobre os ramos de módulo: sys.platform != 'win32' (política não aplicada)
+    e __name__ != '__main__' (main() não executada). Recarrega e restaura."""
+    import importlib
+    import sys
+
+    import dashboard.app as modulo_app
+
+    monkeypatch.setattr(sys, "platform", "linux")
+    try:
+        recarregado = importlib.reload(modulo_app)
+        assert callable(recarregado.main)
+    finally:
+        monkeypatch.undo()
+        importlib.reload(modulo_app)

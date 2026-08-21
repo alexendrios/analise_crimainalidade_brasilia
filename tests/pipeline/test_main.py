@@ -13,3 +13,16 @@ def test_main_executa_as_tres_etapas_do_pipeline():
     mock_busca.assert_called_once()
     mock_gold.assert_called_once_with(max_workers=6)
     mock_analise.assert_called_once()
+
+
+def test_main_importado_como_modulo_nao_executa_pipeline():
+    """Import normal (__name__ != '__main__') não deve disparar as etapas."""
+    import importlib
+
+    import src.main as modulo_main
+
+    recarregado = importlib.reload(modulo_main)
+
+    assert callable(recarregado.busca_transformacao_dados)
+    assert callable(recarregado.criar_tabela_gold)
+    assert callable(recarregado.executar_pipeline)

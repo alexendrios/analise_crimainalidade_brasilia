@@ -118,6 +118,25 @@ def test_status_diferente_de_200_levanta_api_error_com_detail():
             health()
 
 
+def test_status_erro_com_json_nao_dict_levanta_api_error_sem_detalhe():
+    mock = Mock()
+    mock.status_code = 502
+    mock.json.return_value = ["erro"]  # JSON válido, mas não é um dict
+    with patch("dashboard.api_client.requests.get", return_value=mock):
+        with pytest.raises(ApiError, match=r"HTTP 502 em http"):
+            health()
+
+
+def test_status_erro_com_corpo_nao_json_usa_texto_da_resposta():
+    mock = Mock()
+    mock.status_code = 500
+    mock.json.side_effect = ValueError("corpo não é JSON")
+    mock.text = "<html>Internal Server Error</html>"
+    with patch("dashboard.api_client.requests.get", return_value=mock):
+        with pytest.raises(ApiError, match="HTTP 500.*Internal Server Error"):
+            health()
+
+
 def test_resposta_nao_json_levanta_api_error():
     mock = Mock()
     mock.status_code = 200
