@@ -54,6 +54,14 @@ class PontoPrevisao(BaseModel):
 class MetricasModelo(BaseModel):
     mae: float
     rmse: float
+    r2: Optional[float] = None
+    escala_original: Optional[Dict[str, float]] = Field(
+        None,
+        description=(
+            "Métricas (mae/rmse/r2) na escala original de contagem de casos, "
+            "agregadas pelo backtesting — além das métricas do resíduo em log."
+        ),
+    )
 
 
 class PrevisaoResponse(BaseModel):
@@ -88,7 +96,7 @@ class ModeloTreinadoInfo(BaseModel):
         None,
         description="'bundle' (Prophet+XGBoost juntos, servível sem re-treino) ou 'legacy' (apenas XGBoost)",
     )
-    metricas: Optional[Dict[str, float]] = None
+    metricas: Optional[Dict[str, Any]] = None
     dataset_info: Optional[Dict[str, Any]] = None
 
 
