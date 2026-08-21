@@ -15,6 +15,11 @@ import plotly.graph_objects as go
 COLUNA_ANO_PREFERIDA = "ano"
 COLUNA_REGIAO = "regiao_administrativa"
 
+TEMA_PLOTLY = "plotly_dark"
+COR_FUNDO_TRANSPARENTE = "rgba(0,0,0,0)"
+FUNDO_HOVER = "#262730"
+TEXTO_HOVER = "#fafafa"
+
 ROTULOS_COLUNAS = {
     "ano": "Ano",
     "regiao_administrativa": "Região administrativa",
@@ -166,7 +171,9 @@ def figura_serie_temporal(
         yaxis_title=rotulo_coluna(coluna_valor),
         legend_title=COLUNA_REGIAO.capitalize(),
         height=480,
-        template="plotly_white",
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
         hovermode="x unified",
     )
     return fig
@@ -241,7 +248,9 @@ def figura_serie_temporal_categorica(
         yaxis_title="Número de ocorrências",
         legend_title=rotulo_coluna(coluna_categorica),
         height=480,
-        template="plotly_white",
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
         hovermode="x unified",
     )
     return fig
@@ -277,8 +286,10 @@ def figura_heatmap_ra_ano(df: pd.DataFrame, coluna_valor: str) -> go.Figure:
         xaxis_title="Ano",
         yaxis_title="Região Administrativa",
         height=520,
-        template="plotly_white",
-        hoverlabel=dict(bgcolor="white"),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+        hoverlabel=dict(bgcolor=FUNDO_HOVER, font_color=TEXTO_HOVER),
     )
     return fig
 
@@ -323,7 +334,9 @@ def figura_ranking_ra(df: pd.DataFrame, coluna_valor: str, ano: Optional[int] = 
         xaxis_title=rotulo_coluna(coluna_valor),
         yaxis_title="Região Administrativa",
         height=520,
-        template="plotly_white",
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
     )
     return fig
 
@@ -378,7 +391,9 @@ def figura_historico_idades(
         barmode="overlay",
         legend_title="Grupo",
         height=480,
-        template="plotly_white",
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
     )
     return fig
 
@@ -418,7 +433,9 @@ def figura_previsao(payload: Dict[str, Any]) -> go.Figure:
         yaxis_title="Valor previsto",
         yaxis2=dict(title="Resíduo log", overlaying="y", side="right", showgrid=False),
         height=480,
-        template="plotly_white",
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
     )
     return fig
 
@@ -444,7 +461,7 @@ def modelos_para_dataframe(modelos: List[Dict[str, Any]]) -> pd.DataFrame:
 # Classificação — criminalidade letal por RA (Regressão Logística)
 # =========================================================
 
-CORES_CLASSE = {1: "firebrick", 0: "#7f8c8d"}
+CORES_CLASSE = {1: "#e74c3c", 0: "#7f8c8d"}
 
 
 def classificacao_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
@@ -485,14 +502,16 @@ def figura_ranking_probabilidade(payload: Dict[str, Any], ano: Optional[int] = N
             ),
         )
     )
-    fig.add_vline(x=0.5, line_dash="dot", line_color="#444", annotation_text="fronteira de decisão")
+    fig.add_vline(x=0.5, line_dash="dot", line_color="#95a5a6", annotation_text="fronteira de decisão")
     fig.update_layout(
         title=f"P(alta criminalidade letal) por RA — ano {ano}",
         xaxis_title="P(alta criminalidade)",
         xaxis_range=[0, 1],
         yaxis_title="Região Administrativa",
         height=560,
-        template="plotly_white",
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
     )
     return fig
 
@@ -526,8 +545,10 @@ def figura_heatmap_probabilidade(payload: Dict[str, Any]) -> go.Figure:
         xaxis_title="Ano",
         yaxis_title="Região Administrativa",
         height=520,
-        template="plotly_white",
-        hoverlabel=dict(bgcolor="white"),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+        hoverlabel=dict(bgcolor=FUNDO_HOVER, font_color=TEXTO_HOVER),
     )
     return fig
 
