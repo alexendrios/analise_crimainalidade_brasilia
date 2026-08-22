@@ -164,5 +164,60 @@ class ClassificacaoResponse(BaseModel):
     )
 
 
+class ParCorrelacaoItem(BaseModel):
+    indicador_a: str
+    indicador_b: str
+    correlacao: float
+
+
+class CorrelacoesResponse(BaseModel):
+    metodo: str = Field(..., description="pearson ou spearman", examples=["pearson"])
+    periodo: List[int] = Field(..., description="[ano_minimo, ano_maximo] da série consolidada")
+    indicadores: List[str]
+    matriz_correlacao: Dict[str, Dict[str, Optional[float]]] = Field(
+        ...,
+        description="Matriz {indicador: {indicador: correlacao}}; null onde não há observações suficientes",
+    )
+    serie_historica: List[Dict[str, Any]] = Field(
+        ..., description="Série ano x indicador (total DF) usada nas correlações"
+    )
+    pares_destaque: List[ParCorrelacaoItem]
+    insights: List[str]
+
+
+class GrangerParItem(BaseModel):
+    origem: str
+    destino: str
+    melhor_lag: Optional[int] = None
+    p_valor: Optional[float] = None
+    significante: bool
+
+
+class GrangerResponse(BaseModel):
+    max_lag: int
+    alpha: float
+    total_pares: int
+    total_significantes: int
+    pares: List[GrangerParItem]
+
+
+class AnomaliasResponse(BaseModel):
+    total_painel: int = Field(..., description="Anomalias no painel RA x ano (roubo a pedestre)")
+    total_mensal: int = Field(
+        ..., description="Anomalias na série mensal de violência contra idosos (0 se a tabela não existir)"
+    )
+    painel: List[Dict[str, Any]]
+    mensal: List[Dict[str, Any]]
+
+
+class ZonasQuentesResponse(BaseModel):
+    ano_referencia: int = Field(..., description="Último ano disponível na tabela gold patrimonial")
+    tamanho_celula_km: float
+    celulas_com_ocorrencias: int
+    zonas: List[Dict[str, Any]] = Field(
+        ..., description="Células ordenadas por ocorrências (centróide de cada RA no recorte)"
+    )
+
+
 class ErrorResponse(BaseModel):
     detail: str

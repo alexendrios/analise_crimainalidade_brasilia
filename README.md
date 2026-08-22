@@ -276,10 +276,14 @@ api/
 ├── schemas.py                   # contratos Pydantic de entrada/saída
 ├── routers/
 │   ├── gold.py                  # /gold/*
-│   └── previsao.py              # /previsao/*
+│   ├── previsao.py              # /previsao/*
+│   ├── classificacao.py         # /classificacao/*
+│   └── analise.py               # /analise/*
 └── services/
     ├── gold_service.py          # paginação, filtros, resumo estatístico
-    └── forecast_service.py      # treina/serve o modelo Prophet + XGBoost
+    ├── forecast_service.py      # treina/serve o modelo Prophet + XGBoost
+    ├── classificacao_service.py # Regressão Logística com cache e artefato
+    └── analise_service.py       # correlações, Granger, anomalias e zonas quentes
 ```
 
 **Endpoints principais:**
@@ -295,12 +299,18 @@ api/
 | GET | `/previsao/modelos` | Lista os modelos já persistidos em `models/*_meta.json` (inclui o campo `formato_artefato`: `bundle` ou `legacy`) |
 | GET | `/classificacao/criminalidade-letal` | Classificação de cada RA/ano como alta/baixa criminalidade letal por Regressão Logística (`usar_cache`), com métricas, odds ratios, matriz de confusão e probabilidade por RA |
 | POST | `/classificacao/retrain` | Força o re-treino da Regressão Logística a partir das tabelas gold mais recentes e persiste o novo artefato em `models/` |
+| GET | `/analise/correlacoes` | Matriz de correlação multivariada entre os indicadores gold (total DF), série histórica ano × indicador, pares destaque e insights textuais (`metodo`: pearson/spearman, `top_n`) |
+| GET | `/analise/granger` | Causalidade de Granger pairwise entre os indicadores anuais — leitura exploratória para séries curtas (`max_lag`, `apenas_significantes`, `limite`) |
+| GET | `/analise/anomalias` | Pontos anômalos do Isolation Forest no painel RA × ano (roubo a pedestre) e na série mensal de violência contra idosos, do mais extremo ao menos extremo (`limite`) |
+| GET | `/analise/zonas-quentes` | Células da malha geoespacial com mais ocorrências patrimoniais no último ano disponível (`tamanho_celula_km`, `top_n`) |
+
+Os endpoints `/analise/*` calculam sobre as tabelas gold a cada chamada (sem cache) e retornam **503** quando as tabelas necessárias não estão materializadas.
 
 **Persistência do par Prophet+XGBoost (bundle):** `analysis/data_analyzer.py::save_model_with_metadata` aceita um `prophet_model` opcional — quando informado, salva `{xgb_model, prophet_model}` como um único artefato `.pkl` (formato `"bundle"`, registrado em `artifact_format` no `_meta.json`, junto dos `residual_bounds` necessários para prever sem re-treinar). O pipeline batch (`analysis/data_analyzer.py::executar_pipeline`) já salva nesse formato. Artefatos antigos, com apenas o XGBoost (`artifact_format: "legacy"`), continuam podendo ser lidos por `carregar_modelo`, mas não são usados para servir previsão (falta o Prophet).
 
 **Estratégia de serving da API:** `GET /previsao/crimes-contra-mulher` tenta primeiro `analysis.data_analyzer.localizar_ultimo_modelo_bundle` para achar o bundle mais recente em `models/` e servir a previsão diretamente a partir dele (`fonte_modelo: "artefato"` na resposta, sem treinar nada). Se ainda não existir nenhum bundle utilizável (primeira execução, artefato corrompido ou metadados incompletos), a API treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente (`fonte_modelo: "retreino"`); se `persistir_modelo=true`, esse novo treino já é salvo como bundle, disponível para a próxima chamada. Para forçar um novo treino mesmo com um bundle já disponível (ex.: dados gold atualizados), use `POST /previsao/retrain`, que ignora o cache e qualquer artefato existente, treina do zero e sempre persiste o resultado. Um cache em memória de 30 min (`usar_cache`) evita repetir trabalho — seja servindo do artefato, seja re-treinando — a cada requisição idêntica.
 
-Testes: `tests/api/` (71 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
+Testes: `tests/api/` (87 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
 
 ## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
 
