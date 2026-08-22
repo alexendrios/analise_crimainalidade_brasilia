@@ -2,11 +2,14 @@
 """
 Integração opcional com PostGIS.
 
-O servidor PostgreSQL atual não possui a extensão PostGIS instalada; as
-funções aqui degradam graciosamente (`postgis_disponivel`) e só executam
+A camada degrada graciosamente (`postgis_disponivel`) e só executa
 DDL/consultas espaciais quando a extensão existe. Toda a malha pode ser
 espelhada no banco como `geometry(Polygon, 4326)` para consultas
 ST_Intersects/ST_Contains.
+
+O `docker-compose.yaml` já usa a imagem `postgis/postgis:16-3.4`, que traz
+a extensão embutida — basta chamar `habilitar_postgis(engine)` uma vez
+(requer superusuário) e materializar a malha com `criar_tabela_malha`.
 """
 
 from sqlalchemy import text
