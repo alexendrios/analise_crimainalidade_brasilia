@@ -179,9 +179,29 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 - **Horizonte:** 5 anos à frente, com atualização recursiva das features (lags, médias móveis) a cada passo.
 - **Persistência:** cada execução do pipeline batch (`executar_pipeline`) gera um novo arquivo `models/xgb_residual_log_<timestamp>.pkl`, salvo como **bundle** — um único artefato contendo tanto o `XGBRegressor` do resíduo quanto o `Prophet` correspondente (dict `{xgb_model, prophet_model}` serializado via `joblib`) — acompanhado do seu `_meta.json` (métricas `mae`/`rmse`, hiperparâmetros, features, `dataset_info` com a tabela/período de origem, `artifact_format: "bundle"` e `extra` com os limites de clipping do resíduo e o horizonte de previsão). Isso permite que a API reconstrua a previsão híbrida completa a partir do artefato salvo, sem re-treinar (ver seção da API). Os três modelos gerados antes desta funcionalidade continuam em disco no formato antigo (`artifact_format: "legacy"`, apenas o XGBoost) e seguem legíveis via `carregar_modelo`, mas não são usados para servir previsão por faltar o Prophet.
 
+## 📈 Análises Executivas (`analysis/`)
+
+Camada de modelagem e análise que complementa a predição pontual do `data_analyzer`, respondendo **quais crimes se relacionam**, **onde** concentram e **quando** o padrão muda. Tudo orquestrado por um único entrypoint:
+
+```bash
+python -m analysis.pipeline_analise
+# Saída em data/analises/: relatorio_executivo.md + .pdf e mapa_calor_roubo_pedestre.html
+```
+
+| Módulo | O que faz |
+|:---|:---|
+| `analysis/correlacoes.py` | Matriz ano × indicador (12 tipos de crime das tabelas gold), correlações Pearson/Spearman, **causalidade de Granger** pairwise (com salvaguardas para séries curtas) e correlação **espacial entre tabelas gold** (violência contra idosos × patrimoniais por RA). |
+| `analysis/anomalias.py` | Detecção de outliers com **Isolation Forest** sobre features causais (lag, diferença, média móvel) — na série mensal de violência contra idosos e no painel RA × ano dos crimes patrimoniais. |
+| `analysis/mapa.py` | **Mapa de calor Folium** distribuindo os indicadores por RA na malha regular de células do `geoespacial.malha` (+ export GeoPackage via GeoPandas). |
+| `analysis/relatorio.py` | Relatório executivo em **Markdown + PDF** (fpdf2) com tabelas-síntese e insights textuais gerados a partir dos resultados. |
+
+Resultados típicos com os dados atuais: correlação forte entre famílias patrimoniais e letais (tendência comum domina séries anuais curtas); Granger aponta `roubo_comercio` antecedendo roubo no transporte/pedestre/veículo; Spearman de **+0,63 (p=0,001)** entre violência contra idosos e crimes patrimoniais no cross-section por RA (2016); anomalias concentradas em 2020 (efeito pandemia).
+
+> 🗺️ A camada geoespacial opcional (`geoespacial/postgis.py`) sobe DDL de malha no banco quando a extensão PostGIS estiver disponível — o `docker-compose.yaml` já usa a imagem `postgis/postgis:16-3.4`, que a traz embutida.
+
 ## ✅ Qualidade e Testes
 
-- **580 testes** coletados (`pytest`), **todos passando** — **99,10% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Todos os módulos cobertos têm 100% de statements; restam apenas ramos parciais defensivos (ex.: tratamentos de exceção inatingíveis via fluxo normal).
+- **668 testes** coletados (`pytest`), **todos passando** — **98,33% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Todos os módulos cobertos têm 100% de statements; restam apenas ramos parciais defensivos (ex.: tratamentos de exceção inatingíveis via fluxo normal).
 - Relatórios gerados automaticamente em `test_report/`: relatório de testes HTML (`relatorio-testes.html`) + JUnit (`junit.xml`), cobertura técnica (`coverage/index.html` e `coverage.xml`) e **relatório executivo de cobertura** (`cobertura-executiva.html`, gerado por `scripts/gerar_relatorio_cobertura.py` a partir do `.coverage`). A saída completa do pytest pode ser persistida em `logs/testes.log` via `scripts/executar_testes.ps1` — ou use `scripts/executar_testes.bat`, que orquestra o fluxo completo (testes → relatório executivo → abertura dos relatórios no navegador).
 - Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`, `tests/validation`.
 
@@ -210,7 +230,7 @@ Havia um arquivo duplicado em `tests/core/test_tratamento_crimes_basico1.py` com
 ## 🚀 Como Executar (ambiente local)
 
 ```bash
-# 1. Subir o Postgres local
+# 1. Subir o Postgres local (imagem postgis/postgis:16-3.4 — extensão PostGIS embutida)
 docker compose up -d
 
 # 2. Configurar variáveis de ambiente (.env) com as credenciais do banco
@@ -223,23 +243,27 @@ pip install -r requirements.txt
 # 4. Rodar o pipeline (editar src/main.py para habilitar as etapas desejadas)
 python -m src.main
 
-# 5. Rodar a suíte de testes
+# 5. Gerar as análises executivas (correlações, anomalias, mapa e relatório)
+python -m analysis.pipeline_analise
+# Saída em data/analises/: relatorio_executivo.md/.pdf + mapa_calor_roubo_pedestre.html
+
+# 6. Rodar a suíte de testes
 pytest
 
-# 6. Subir a API (camada de consumo)
+# 7. Subir a API (camada de consumo)
 uvicorn api.main:app --reload --port 8000
 # Documentação interativa (Swagger): http://localhost:8000/docs
 
-# 7. Abrir o dashboard interativo (requer a API do passo 6 no ar)
+# 8. Abrir o dashboard interativo (requer a API do passo 7 no ar)
 streamlit run dashboard/app.py
 # Acesse em: http://localhost:8501
 
-# 8. Testes E2E (Karate) e de carga (Gatling) da API — requerem a API do passo 6 no ar
+# 9. Testes E2E (Karate) e de carga (Gatling) da API — requerem a API do passo 7 no ar
 cd karate-tests && mvn test                # E2E (relatório Allure em target/allure-results)
 cd ../gatling-tests && mvn gatling:test    # carga (relatório em target/gatling/<simulacao>/index.html)
 ```
 
-> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`, `streamlit`, `plotly`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
+> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`, `streamlit`, `plotly`, `folium`/`geopandas`/`fpdf2`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
 
 ## 🌐 Camada de Consumo (API — `api/`)
 
@@ -362,22 +386,18 @@ Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, 
 
 ## 🗺️ Roadmap / Visão Futura
 
-Os itens abaixo **não existem no código atual** — são direções possíveis de evolução, registradas para não se perderem, mas não devem ser confundidas com o estado presente do projeto:
+Registro das direções de evolução. Itens com ✅ **já existem no código** (com referência para a seção/documentação correspondente); os demais seguem como direções possíveis, não devendo ser confundidos com o estado presente do projeto:
 
 ### Arquitetura e dados
-- Camada geoespacial com PostGIS e malha de células (grid) para análises espaciais mais finas.
-- Carga incremental (hoje é sempre full refresh).
-- Cloud readiness: abstrair sistema de arquivos para suportar object storage (S3/Blob).
-- Data quality automatizado entre camadas (schema checks).
-- Orquestração unificada (ex.: levar o pipeline Silver para o padrão `PipelineStep`, ou adotar Airflow/Prefect).
+- ✅ **Camada geoespacial implementada** — malha regular de células em pandas/numpy (`geoespacial/malha.py`), centróides aproximados das RAs e módulo PostGIS opcional (`geoespacial/postgis.py`, DDL condicionado à extensão disponível; o `docker-compose.yaml` já usa a imagem `postgis/postgis:16-3.4`). Ver seção "📈 Análises Executivas".
+- ✅ **Data quality automatizado entre camadas implementado** — schemas declarativos silver/gold em `validation/schema.py` + `validation/esquemas.py`, aplicados automaticamente via hook `PipelineStep.validacao` (leitura do CSV silver quando o step não retorna DataFrame).
+- ✅ **Orquestração unificada implementada** — o pipeline Silver usa o mesmo motor declarativo `PipelineStep` + `executar_pipeline` do Gold, agora com agendamento topológico por dependências, propagação de falhas entre etapas dependentes e detecção de ciclo.
 
-### Modelagem e análise (baseado nas propostas de enriquecimento já levantadas para o notebook exploratório)
-- Variáveis exógenas: projeção populacional por RA, índices socioeconômicos (IDH/renda), sazonalidade mensal/calendário de eventos.
-- Análise de correlação multivariada entre tipos de crime (ex.: Causalidade de Granger) e entre tabelas gold (ex.: violência contra idosos x crimes patrimoniais).
-- Visualização geoespacial (mapas de calor com Folium/GeoPandas) para identificar zonas quentes de criminalidade.
-- Detecção de outliers/anomalias (ex.: Isolation Forest) para identificar mudanças de padrão ou metodologia.
-- Otimização de hiperparâmetros (Optuna/GridSearchCV adaptado a séries temporais).
-- Exportação de relatório executivo (PDF/Markdown) com os principais insights de cada previsão.
+### Modelagem e análise
+- ✅ **Análise de correlação multivariada implementada** — matriz Pearson/Spearman entre 12 indicadores gold, causalidade de Granger pairwise e correlação espacial idosos × patrimoniais por RA (`analysis/correlacoes.py`). Ver seção "📈 Análises Executivas".
+- ✅ **Visualização geoespacial implementada** — mapa de calor Folium sobre a malha de células + export GeoPackage/GeoPandas (`analysis/mapa.py`). Ver seção "📈 Análises Executivas".
+- ✅ **Detecção de outliers/anomalias implementada** — Isolation Forest na série mensal de idosos e no painel RA × ano (`analysis/anomalias.py`). Ver seção "📈 Análises Executivas".
+- ✅ **Exportação de relatório executivo implementada** — Markdown + PDF com os insights de cada análise (`analysis/relatorio.py`, orquestrado por `python -m analysis.pipeline_analise`). Ver seção "📈 Análises Executivas".
 
 ### Camada de consumo
 - ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.
