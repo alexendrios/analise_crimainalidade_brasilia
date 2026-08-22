@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from src.core.pipeline_step import PipelineStep
-from src.core.executor import executar_com_retry, executar_pipeline
+from src.core.executor import _executar_passo, executar_com_retry, executar_pipeline
 
 MODULO = "src.core.executor"
 
@@ -114,3 +114,197 @@ def test_executar_pipeline_isola_falha_de_um_step_dos_demais():
 
     assert resultados["quebrado"] is None
     assert len(resultados["ok"]) == 1
+
+
+# ============================================================
+# Hook de validação (data quality)
+# ============================================================
+def test_validacao_eh_chamada_com_o_resultado_do_step():
+    recebido = {}
+
+    def validacao(resultado):
+        recebido["resultado"] = resultado
+
+    df = pd.DataFrame({"x": [1]})
+    step = PipelineStep(
+        nome="validado", func=lambda: df, retries=0, timeout=5, validacao=validacao
+    )
+
+    nome, resultado, sucesso = _executar_passo("run-4", step)
+
+    assert sucesso
+    pd.testing.assert_frame_equal(recebido["resultado"], df)
+
+
+def test_validacao_falha_consoma_as_tentativas_e_marca_como_falha():
+    from unittest.mock import patch
+
+    chamadas = {"n": 0}
+
+    def func():
+        chamadas["n"] += 1
+        return pd.DataFrame({"x": [1]})
+
+    def validacao(_resultado):
+        raise ValueError("schema inválido")
+
+    step = PipelineStep(
+        nome="invalido", func=func, retries=1, timeout=5, validacao=validacao
+    )
+
+    with patch(f"{MODULO}.logger.error"):
+        nome, resultado, sucesso = _executar_passo("run-5", step)
+
+    assert sucesso is False
+    assert resultado is None
+    assert chamadas["n"] == 2  # tentativa inicial + retry
+
+
+def test_validacao_nao_rodando_para_retorno_none():
+    chamadas = {"n": 0}
+
+    def validacao(_resultado):
+        chamadas["n"] += 1
+
+    step = PipelineStep(
+        nome="sem_dados",
+        func=lambda: None,
+        retries=0,
+        timeout=5,
+        validacao=validacao,
+    )
+
+    nome, resultado, sucesso = _executar_passo("run-6", step)
+
+    assert sucesso and resultado is None
+    assert chamadas["n"] == 0
+
+
+# ============================================================
+# Dependências (orquestração unificada)
+# ============================================================
+def test_dependencias_definem_a_ordem_de_execucao():
+    eventos = []
+
+    def passo(nome, retorno=None):
+        def func():
+            eventos.append(nome)
+            return pd.DataFrame({"x": [len(eventos)]}) if retorno is None else retorno
+
+        return func
+
+    steps = [
+        PipelineStep(nome="c", func=passo("c"), dependencias=("b",), retries=0, timeout=5),
+        PipelineStep(nome="a", func=passo("a"), retries=0, timeout=5),
+        PipelineStep(nome="b", func=passo("b"), dependencias=("a",), retries=0, timeout=5),
+    ]
+
+    resultados = executar_pipeline("run-7", steps, max_workers=4)
+
+    assert set(resultados) == {"a", "b", "c"}
+    assert eventos.index("a") < eventos.index("b") < eventos.index("c")
+
+
+def test_dependente_nao_executa_quando_dependencia_falha():
+    executados = []
+
+    def func_quebra():
+        raise RuntimeError("boom")
+
+    def func_bom():
+        executados.append("ok")
+        return pd.DataFrame({"x": [1]})
+
+    steps = [
+        PipelineStep(nome="raiz", func=func_quebra, retries=0, timeout=5),
+        PipelineStep(
+            nome="ok", func=func_bom, retries=0, timeout=5
+        ),
+        PipelineStep(
+            nome="dependente",
+            func=lambda: executados.append("dependente"),
+            dependencias=("raiz",),
+            retries=0,
+            timeout=5,
+        ),
+    ]
+
+    with patch(f"{MODULO}.logger.error"):
+        resultados = executar_pipeline("run-8", steps, max_workers=2)
+
+    assert resultados["raiz"] is None
+    assert resultados["dependente"] is None
+    assert "dependente" not in executados
+    assert len(resultados["ok"]) == 1  # step sem relação segue normal
+
+
+def test_falha_propaga_transitivamente_pela_cadeia():
+    executados = []
+
+    def func_quebra():
+        raise RuntimeError("falha na origem")
+
+    steps = [
+        PipelineStep(nome="origem", func=func_quebra, retries=0, timeout=5),
+        PipelineStep(
+            nome="meio",
+            func=lambda: executados.append("meio"),
+            dependencias=("origem",),
+            retries=0,
+            timeout=5,
+        ),
+        PipelineStep(
+            nome="fim",
+            func=lambda: executados.append("fim"),
+            dependencias=("meio",),
+            retries=0,
+            timeout=5,
+        ),
+    ]
+
+    with patch(f"{MODULO}.logger.error"):
+        resultados = executar_pipeline("run-9", steps, max_workers=2)
+
+    assert set(resultados.values()) == {None}
+    assert executados == []
+
+
+def test_dependencia_circular_nao_trava_o_pipeline():
+    steps = [
+        PipelineStep(
+            nome="x", func=lambda: pd.DataFrame(), dependencias=("y",), retries=0, timeout=5
+        ),
+        PipelineStep(
+            nome="y", func=lambda: pd.DataFrame(), dependencias=("x",), retries=0, timeout=5
+        ),
+    ]
+
+    with patch(f"{MODULO}.logger.error"):
+        resultados = executar_pipeline("run-10", steps, max_workers=2)
+
+    assert resultados == {"x": None, "y": None}
+
+
+def test_dependencia_inexistente_levanta_valueerror():
+    steps = [
+        PipelineStep(
+            nome="orfao",
+            func=lambda: pd.DataFrame(),
+            dependencias=("fantasma",),
+            retries=0,
+            timeout=5,
+        )
+    ]
+
+    with pytest.raises(ValueError, match="inexistentes"):
+        executar_pipeline("run-11", steps)
+
+
+def test_nome_de_step_duplicado_levanta_valueerror():
+    steps = [
+        PipelineStep(nome="repetido", func=lambda: pd.DataFrame(), retries=0, timeout=5),
+        PipelineStep(nome="repetido", func=lambda: pd.DataFrame(), retries=0, timeout=5),
+    ]
+
+    with pytest.raises(ValueError, match="duplicado"):
+        executar_pipeline("run-12", steps)

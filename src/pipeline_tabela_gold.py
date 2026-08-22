@@ -1,5 +1,6 @@
 import time
 import uuid
+from dataclasses import replace
 from ingestion.repository_adapter import Repository
 from domain.desaparecimentos import DesaparecimentosService
 from domain.violencia_mulher import ViolenciaMulherService
@@ -10,6 +11,8 @@ from domain.crimes_discriminatorios import CrimesDiscriminatoriosService
 from domain.crimes_patrimoniais import CrimesPatrimoniaisService
 from src.core.pipeline_step import PipelineStep
 from src.core.executor import executar_pipeline
+from validation.schema import validador_de_esquema
+from validation.esquemas import GOLD
 from util.log import logs
 
 logger = logs()
@@ -77,6 +80,15 @@ STEPS = [
         DesaparecimentosService.carregar_desaparecidos_regiao,
         "desaparecidos_regiao_gold",
     ),
+]
+
+# 🔹 data quality: cada tabela gold é validada contra o schema declarado
+# antes da persistência (falha de schema conta como falha do step).
+STEPS = [
+    replace(step, validacao=validador_de_esquema(GOLD[step.output]))
+    if step.output in GOLD
+    else step
+    for step in STEPS
 ]
 
 

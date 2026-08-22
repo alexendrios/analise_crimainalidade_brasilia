@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 import pandas as pd
 
 
@@ -10,3 +10,5 @@ class PipelineStep:
     output: Optional[str] = None
     retries: int = 2
     timeout: int = 300
+    dependencias: tuple = ()
+    validacao: Optional[Callable[[Any], None]] = None

@@ -210,7 +210,7 @@ def test_app_renderiza_sem_erros():
 
     assert not at.exception
     assert not at.error
-    assert at.title[0].value == "Criminalidade Brasília/DF — Dashboard"
+    assert at.title[0].value == "Criminalidade em Brasília/DF — Dashboard Analítico"
 
 
 def test_app_visao_geral_exclui_tabelas_nao_sumarizaveis():

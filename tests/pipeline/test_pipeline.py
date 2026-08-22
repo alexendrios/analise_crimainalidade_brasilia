@@ -1,9 +1,12 @@
 from unittest.mock import patch, DEFAULT
 import pandas as pd
+import pytest
 
 from src.pipeline_busca_transformacao import (
     busca_transformacao_dados,
     TRATAMENTOS,
+    TRATAMENTOS_PREPARADOS,
+    PIPELINE_SILVER,
 )
 from src.core.pipeline_step import PipelineStep
 
@@ -42,6 +45,16 @@ FUNCOES_MOCKADAS = [
 ]
 
 
+@pytest.fixture(autouse=True)
+def sem_schema_check(monkeypatch):
+    """Isola a orquestração dos schema checks (cobertos em tests/validation)."""
+    from validation import esquemas as modulo_esquemas
+
+    monkeypatch.setattr(
+        modulo_esquemas, "validar_saida_silver", lambda *args, **kwargs: None
+    )
+
+
 def test_pipeline_fluxo_completo():
     """Executa o pipeline feliz: todas as etapas são chamadas uma vez."""
     with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
@@ -68,20 +81,21 @@ def test_pipeline_crimes_retorna_vazio_nao_quebra():
 
 def test_pipeline_cobre_bloco_except():
     """
-    A função captura qualquer exceção internamente (não relança) e loga via
-    logger.exception. Simulamos falha logo na coleta para cobrir esse bloco.
+    Falha na coleta derruba a cadeia por dependência (carga nunca roda) e o
+    executor registra o erro; a função externa não propaga a exceção.
     """
     with patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}) as mocks:
         mocks["coletar_dados_"].side_effect = Exception("Erro simulado")
 
-        with patch(f"{MODULO}.logger.exception") as mock_logger_exc:
-            # não deve levantar, pois o except interno engole a exceção
+        with patch("src.core.executor.logger.error") as mock_error:
+            # não deve levantar: falhas de step são capturadas pelo executor
             busca_transformacao_dados()
 
-            mock_logger_exc.assert_called()
-            assert "Erro simulado" in str(mock_logger_exc.call_args)
+            assert any(
+                "Erro simulado" in str(call) for call in mock_error.call_args_list
+            )
 
-        # etapas posteriores não devem ter sido chamadas
+        # etapas dependentes não devem ter sido chamadas
         mocks["salvar_tabela"].assert_not_called()
 
 
@@ -93,8 +107,35 @@ def test_tratamentos_sao_declarativos_e_com_nomes_unicos():
     assert len(nomes) == len(set(nomes))
 
 
-def test_busca_transformacao_usa_executor_paralelo_nos_tratamentos():
-    """Paridade com o Gold: executar_pipeline recebe os TRATAMENTOS e max_workers."""
+def test_dag_silver_unificado_tem_nomes_unicos_e_cadeia_integra():
+    """
+    Orquestração unificada: fases sequenciais + tratamentos + carga formam um
+    único DAG executado pelo mesmo motor do pipeline Gold.
+    """
+    nomes = [step.nome for step in PIPELINE_SILVER]
+    assert len(nomes) == len(set(nomes))
+
+    por_nome = {step.nome: step for step in PIPELINE_SILVER}
+    assert por_nome["populacao"].dependencias == ("coleta",)
+    assert por_nome["planilhas"].dependencias == ("populacao",)
+
+    assert set(por_nome["carga"].dependencias) == {
+        step.nome for step in TRATAMENTOS_PREPARADOS
+    }
+    for nome in ("coleta", "populacao", "planilhas", "carga"):
+        assert nome in nomes
+
+
+def test_tratamentos_dependem_de_planilhas_e_possuem_validacao():
+    """Data quality automatizado: todo tratamento silver valida sua saída."""
+    for original, preparado in zip(TRATAMENTOS, TRATAMENTOS_PREPARADOS):
+        assert preparado.nome == original.nome
+        assert preparado.dependencias == ("planilhas",)
+        assert callable(preparado.validacao)
+
+
+def test_busca_transformacao_usa_executor_paralelo_no_dag_unico():
+    """executar_pipeline recebe o DAG completo e o max_workers informado."""
     with (
         patch.multiple(MODULO, **{f: DEFAULT for f in FUNCOES_MOCKADAS}),
         patch(f"{MODULO}.executar_pipeline") as mock_exec,
@@ -103,5 +144,5 @@ def test_busca_transformacao_usa_executor_paralelo_nos_tratamentos():
 
         mock_exec.assert_called_once()
         args, kwargs = mock_exec.call_args
-        assert args[1] == TRATAMENTOS
+        assert args[1] == PIPELINE_SILVER
         assert kwargs["max_workers"] == 4

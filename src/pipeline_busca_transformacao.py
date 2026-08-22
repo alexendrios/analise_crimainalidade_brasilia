@@ -1,4 +1,5 @@
 # src/pipeline_busca_transformacao.py
+from dataclasses import replace
 from pathlib import Path
 from util.extrator_zip import arquivos_zip_execucao
 from util.leitor_excel import processar_populacao, processar_crimes
@@ -33,6 +34,7 @@ from database.load_csvs import salvar_tabela
 from database.connection import close_engine
 from src.core.pipeline_step import PipelineStep
 from src.core.executor import executar_pipeline
+from validation.esquemas import validador_silver
 from util.log import logs
 import time
 
@@ -256,21 +258,50 @@ def _fase_carga():
     log_tempo_fim("Carga de Dados no Banco", start)
 
 
+# 🔹 orquestração unificada: todas as fases (inclusive as sequenciais) são
+# PipelineStep com dependências, executadas pelo mesmo motor do Gold.
+FASES_BASE = [
+    PipelineStep("coleta", lambda: (_fase_coleta(), None)[1], retries=0, timeout=1800),
+    PipelineStep(
+        "populacao", _fase_populacao, dependencias=("coleta",), retries=0, timeout=1800
+    ),
+    PipelineStep(
+        "planilhas", _fase_planilhas, dependencias=("populacao",), retries=0, timeout=1800
+    ),
+]
+
+
+def _preparar_tratamentos(steps):
+    """Adiciona dependência da fase de planilhas e o hook de schema check."""
+    return [
+        replace(
+            step,
+            dependencias=("planilhas",),
+            validacao=validador_silver(step.nome),
+        )
+        for step in steps
+    ]
+
+
+TRATAMENTOS_PREPARADOS = _preparar_tratamentos(TRATAMENTOS)
+
+STEP_CARGA = PipelineStep(
+    "carga",
+    _fase_carga,
+    dependencias=tuple(step.nome for step in TRATAMENTOS_PREPARADOS),
+    retries=0,
+    timeout=1800,
+)
+
+PIPELINE_SILVER = FASES_BASE + TRATAMENTOS_PREPARADOS + [STEP_CARGA]
+
+
 def busca_transformacao_dados(max_workers: int = 6):
     pipeline_start = log_tempo_inicio("Pipeline Completo")
 
     try:
-        # 📥 fases sequenciais (possuem dependência de dados entre si)
-        _fase_coleta()
-        _fase_populacao()
-        _fase_planilhas()
-
-        # ⚡ tratamentos independentes executados em paralelo (declarativo)
-        start = log_tempo_inicio("Estágios 4 a 7 - Tratamentos de Crimes")
-        executar_pipeline("silver", TRATAMENTOS, max_workers=max_workers)
-        log_tempo_fim("Tratamentos de Crimes", start)
-
-        _fase_carga()
+        # ⚡ DAG único: coleta → população → planilhas → tratamentos ∥ → carga
+        executar_pipeline("silver", PIPELINE_SILVER, max_workers=max_workers)
 
         logger.info("Pipeline finalizado com sucesso!")
 
