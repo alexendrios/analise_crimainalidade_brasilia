@@ -36,11 +36,16 @@ karate-tests/
 │           │   ├── tabelas.feature      # GET /gold/tabelas
 │           │   ├── resumo.feature       # GET /gold/{tabela}/resumo
 │           │   └── dados.feature        # GET /gold/{tabela}/dados (paginação, filtros)
-│           └── previsao/
-│               ├── crimes_contra_mulher.feature  # GET /previsao/crimes-contra-mulher
-│               └── modelos.feature      # GET /previsao/modelos
-│           └── classificacao/
-│               └── criminalidade_letal.feature  # GET /classificacao/criminalidade-letal e POST /classificacao/retrain
+│           ├── previsao/
+│           │   ├── crimes_contra_mulher.feature  # GET /previsao/crimes-contra-mulher
+│           │   └── modelos.feature      # GET /previsao/modelos
+│           ├── classificacao/
+│           │   └── criminalidade_letal.feature  # GET /classificacao/criminalidade-letal e POST /classificacao/retrain
+│           └── analise/
+│               ├── correlacoes.feature  # GET /analise/correlacoes (matriz, pares destaque, validações de parâmetro)
+│               ├── granger.feature      # GET /analise/granger (significantes, max_lag, limite)
+│               ├── anomalias.feature    # GET /analise/anomalias (painel RA x ano + mensal idosos)
+│               └── zonas_quentes.feature  # GET /analise/zonas-quentes (malha, ordenação, padrão celula_id)
 ```
 
 ## Como rodar
