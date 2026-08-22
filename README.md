@@ -11,6 +11,8 @@
 > **Testes E2E e de carga da API:** além da suíte `pytest`, a API de consumo ganhou duas camadas de teste externas ao Python — uma suíte **E2E em Karate DSL (Gherkin/Cucumber)** com relatório **Allure** (`karate-tests/`) e uma suíte de **carga/performance em Gatling (Scala)** (`gatling-tests/`), que exercita o fluxo principal do dashboard sob rampa de usuários com asserções de taxa de sucesso (≥99%) e p95 (limite configurável). Ver [Testes E2E da API](#-testes-e2e-da-api-karate-dsl--cucumber--allure--karate-tests) e [Testes de Carga da API](#-testes-de-carga-da-api-gatling--gatling-tests).
 >
 > **Revisão mais recente (aumento de cobertura):** criada a suíte `tests/validation/` — `validation/validator.py`, antes o único pacote de produção sem testes próprios (36%), agora está em 100%. Também cobertos os últimos ramos pendentes de `analysis/data_analyzer.py`, `api/main.py`, `dashboard/api_client.py`, `dashboard/app.py` e `src/main.py`. Estado atual verificado rodando a suíte: **502 testes, todos passando, 99,65% de cobertura** (todos os módulos com 100% de statements; restam apenas ramos parciais defensivos).
+>
+> **Revisão mais recente (dashboard reformulado):** o painel ganhou **tema dark** (`.streamlit/config.toml` + gráficos Plotly coerentes), uma aba **Visão Geral** com métricas-resumo por indicador (cache de 10 min), filtros de tabelas não comparáveis nos seletores das abas **Séries Temporais** (idosos/desaparecidos) e **Mapa de Calor**, a aba "Idades" renomeada para **Identificação crimes** (tabela fixa `identificacao_crimes_contra_mulher_gold`) e a nova aba **Desaparecidos** com quatro gráficos de barra (sexo, faixa etária, localizados × ainda desaparecidos e RA 2020 × 2021). Estado atual verificado rodando a suíte completa: **580 testes, todos passando, 99,10% de cobertura**. Ver [Dashboard Interativo](#-dashboard-interativo-streamlit--dashboard).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -120,7 +122,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 565 testes, todos passando, **99,23% de cobertura** em `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation`, limiar mínimo de 95% (`--cov-fail-under=95`) |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html` | 580 testes, todos passando, **99,10% de cobertura** em `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation`, limiar mínimo de 95% (`--cov-fail-under=95`) |
 | **Testes E2E / Carga da API** | `Karate DSL` (Cucumber/Allure), `Gatling` (Scala/Maven) | Suíte E2E dos endpoints da API em `karate-tests/` e teste de carga com rampa de usuários e asserções de sucesso/p95 em `gatling-tests/` (ver seções próprias) |
 | **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
@@ -179,7 +181,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 
 ## ✅ Qualidade e Testes
 
-- **565 testes** coletados (`pytest`), **todos passando** — **99,23% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Todos os módulos cobertos têm 100% de statements; restam apenas ramos parciais defensivos (ex.: tratamentos de exceção inatingíveis via fluxo normal).
+- **580 testes** coletados (`pytest`), **todos passando** — **99,10% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Todos os módulos cobertos têm 100% de statements; restam apenas ramos parciais defensivos (ex.: tratamentos de exceção inatingíveis via fluxo normal).
 - Relatórios gerados automaticamente em `test_report/`: relatório de testes HTML (`relatorio-testes.html`) + JUnit (`junit.xml`), cobertura técnica (`coverage/index.html` e `coverage.xml`) e **relatório executivo de cobertura** (`cobertura-executiva.html`, gerado por `scripts/gerar_relatorio_cobertura.py` a partir do `.coverage`). A saída completa do pytest pode ser persistida em `logs/testes.log` via `scripts/executar_testes.ps1` — ou use `scripts/executar_testes.bat`, que orquestra o fluxo completo (testes → relatório executivo → abertura dos relatórios no navegador).
 - Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`, `tests/validation`.
 
@@ -278,17 +280,25 @@ Testes: `tests/api/` (71 testes, cobrindo services e endpoints via `TestClient`,
 
 ## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
 
-Um painel web em **Streamlit** consome a API e desenha os gráficos com **Plotly**: séries temporais, mapa de calor RA × ano, ranking por RA, previsão Prophet+XGBoost (com métricas e arquivo do modelo), classificação de criminalidade letal por RA (Regressão Logística) e exploração das tabelas gold. O painel não executa análise própria — apenas reaproveita os endpoints da API.
+Um painel web em **Streamlit** com **tema dark** (`.streamlit/config.toml`: fundo `#0e1117`, painéis `#262730`, cor primária `#e74c3c`) consome a API e desenha os gráficos com **Plotly** no tema `plotly_dark` (fundos transparentes para integrar ao painel). Organizado em **oito abas**: **Visão Geral**, **Séries Temporais**, **Mapa de Calor**, **Identificação crimes**, **Desaparecidos**, **Previsões**, **Classificação** e **Tabelas**. O painel não executa análise própria — apenas reaproveita os endpoints da API.
 
-A aba **Séries Temporais** mostra o **total consolidado por ano** (soma de todas as RAs) como linha principal, com **RAs selecionáveis** via multiselect para comparação e **média móvel** configurável (janela 1 = desativada). Tanto o seletor de tabelas quanto o de colunas usam **rótulos legíveis em pt-BR** (ex.: `identificacao_crimes_contra_mulher_gold` → "Identificação crimes contra mulher"; `idade_vitima` → "Idade da vítima"), aplicados também aos títulos e eixos dos gráficos.
-
-A aba **Classificação** consome `GET /classificacao/criminalidade-letal` e mostra, para o ano selecionado, o **ranking das RAs pela probabilidade prevista de alta criminalidade letal** (barras coloridas pela classe prevista, com a fronteira de decisão p = 0,50 marcada) e um **mapa de calor RA × ano** da probabilidade. Abaixo, a tabela de classificações e a avaliação do modelo: CV ROC-AUC (média ± desvio), holdout ROC-AUC/F1, odds ratios por feature e matriz de confusão rotulada.
+- **Visão Geral:** métricas-resumo do indicador escolhido (tabela gold + coluna) — valor no último ano com variação vs. ano anterior (vermelho = alta da criminalidade), período coberto, RA mais crítica e total de RAs monitoradas. A carga das tabelas gold é cacheada por 10 minutos (`st.cache_data`). Tabelas de identificação/desaparecidos, que não representam contagens comparáveis ano a ano, ficam fora deste seletor.
+- **Séries Temporais:** mostra o **total consolidado por ano** (soma de todas as RAs) como linha principal, com **RAs selecionáveis** via multiselect para comparação e **média móvel** configurável (janela 1 = desativada), além do modo "Contagem por categoria". Os seletores usam **rótulos legíveis em pt-BR** (ex.: `identificacao_crimes_contra_mulher_gold` → "Identificação crimes contra mulher"; `idade_vitima` → "Idade da vítima"), aplicados também aos títulos e eixos dos gráficos. As tabelas de idosos e desaparecidos (não comparáveis por ano ou já atendidas em aba própria) ficam fora do seletor.
+- **Mapa de Calor:** heatmap RA × ano do indicador escolhido e ranking horizontal das RAs com escala de cores YlOrRd (com filtro opcional de ano). Fica fora do seletor tudo que não tem o recorte RA × ano (idosos, desaparecidos e identificação de crimes).
+- **Identificação crimes** (antes "Idades"): histograma sobreposto da idade da vítima × autor (suspeito), com largura de bins ajustável e tabela-resumo, sempre sobre a tabela fixa `identificacao_crimes_contra_mulher_gold` (sem seletor).
+- **Desaparecidos:** quatro gráficos de barra em grade 2×2 — desaparecidos **por sexo** (cores fixas masculino/feminino), **por faixa etária** (ordenada pelo número da faixa), **localizados × ainda desaparecidos** (verde/vermelho) e **por RA** com barras agrupadas 2020 × 2021 — consumindo `desaparecidos_idade_sexo_gold`, `desaparecidos_localizados_gold` e `desaparecidos_regiao_gold`. Tabela não materializada exibe aviso sem quebrar a aba.
+- **Previsões:** consome `GET /previsao/crimes-contra-mulher` com horizonte ajustável; métricas do resíduo (MAE/RMSE), origem do modelo (artefato/retreino) e gráfico valor previsto × componente Prophet × resíduo.
+- **Classificação:** consome `GET /classificacao/criminalidade-letal` e mostra, para o ano selecionado, o **ranking das RAs pela probabilidade prevista de alta criminalidade letal** (barras coloridas pela classe prevista, com a fronteira de decisão p = 0,50 marcada) e um **mapa de calor RA × ano** da probabilidade. Abaixo, a tabela de classificações e a avaliação do modelo: CV ROC-AUC (média ± desvio), holdout ROC-AUC/F1, odds ratios por feature e matriz de confusão rotulada.
+- **Tabelas:** exploração livre das tabelas gold paginadas pela API, com filtros de ano e RA.
 
 ```
 dashboard/
-├── app.py              # interface Streamlit (abas: Séries Temporais, Mapa de Calor, Idades, Previsões, Classificação, Tabelas)
+├── app.py              # interface Streamlit (abas: Visão Geral, Séries Temporais, Mapa de Calor, Identificação crimes, Desaparecidos, Previsões, Classificação, Tabelas)
 ├── api_client.py       # cliente HTTP para a API (requests)
 └── visualizacoes.py    # transformações pandas + figuras Plotly + rótulos pt-BR (funções puras, testáveis)
+
+.streamlit/
+└── config.toml         # tema dark do dashboard
 ```
 
 **Execução:**
@@ -304,7 +314,7 @@ streamlit run dashboard/app.py
 
 A URL da API pode ser alterada na sidebar do próprio painel (padrão: `http://localhost:8000`).
 
-Testes: `tests/dashboard/` (97 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco.
+Testes: `tests/dashboard/` (112 testes) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco. As funções de visualização têm testes unitários próprios em `tests/dashboard/test_visualizacoes.py`.
 
 ## 🔁 Testes E2E da API (Karate DSL + Cucumber + Allure — `karate-tests/`)
 
