@@ -513,6 +513,19 @@ def test_app_aba_idades_sem_idades_validas_avisa_usuario():
     assert any("Registros válidos" in str(df.value.columns) for df in at.tabs[3].dataframe)
 
 
+def test_app_identificacao_crimes_nao_oferece_seletor_de_tabela():
+    pads = list(_pads())
+    pads[0] = patch("dashboard.api_client.listar_tabelas", return_value=[TABELA])
+    pads[1] = patch("dashboard.api_client.obter_dados", return_value=DADOS_IDADES)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    aba = at.tabs[3]
+    assert not any("Tabela gold" == s.label for s in aba.selectbox)
+    assert len(aba.get("plotly_chart")) >= 1
+
+
 def test_app_serie_categorica_oferece_meio_utilizado_e_motivacao():
     dados = {
         "tabela": "identificacao_crimes_contra_mulher_gold",

@@ -82,6 +82,8 @@ TABELAS_EXCLUIDAS_MAPA = TABELAS_EXCLUIDAS_SERIES | {
     "identificacao_crimes_contra_mulher_gold",
 }
 
+TABELA_IDENTIFICACAO_CRIMES = "identificacao_crimes_contra_mulher_gold"
+
 
 @st.cache_data(ttl=600, show_spinner="Carregando dados da API...")
 def _carregar_tabela_completa(base_url: str, tabela: str) -> pd.DataFrame:
@@ -315,13 +317,7 @@ def _resumo_idades(df: pd.DataFrame, colunas: list) -> pd.DataFrame:
 
 def _aba_idades(base_url: str) -> None:
     st.subheader("Idades — Vítima × Autor (suspeito)")
-    tabelas = [t["nome"] for t in listar_tabelas(base_url)]
-    if not tabelas:
-        st.warning("Nenhuma tabela gold encontrada na API.")
-        return
-
-    tabela = st.selectbox("Tabela gold", tabelas, key="idades_tabela", format_func=rotulo_tabela)
-    df = _carregar_tabela_completa(base_url, tabela)
+    df = _carregar_tabela_completa(base_url, TABELA_IDENTIFICACAO_CRIMES)
     if df.empty:
         st.info("A tabela selecionada ainda não foi materializada no banco.")
         return
@@ -525,7 +521,7 @@ def main() -> None:
                 st.error(str(exc))
 
     aba_visao, aba_series, aba_mapa, aba_idades, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
-        ["Visão Geral", "Séries Temporais", "Mapa de Calor", "Idades", "Previsões", "Classificação", "Tabelas"]
+        ["Visão Geral", "Séries Temporais", "Mapa de Calor", "Identificação crimes", "Previsões", "Classificação", "Tabelas"]
     )
 
     try:
