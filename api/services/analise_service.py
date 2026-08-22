@@ -9,6 +9,7 @@ tabelas gold carregadas pelo mesmo loader do pipeline de análise
 """
 
 import json
+import time
 
 from analysis.anomalias import detectar_anomalias, detectar_anomalias_painel, resumo_anomalias
 from analysis.correlacoes import (
@@ -36,6 +37,30 @@ class DadosIndisponiveisError(LookupError):
     """Levantada quando as tabelas gold necessárias não estão materializadas."""
 
 
+# Cache em memória com TTL (mesmo padrão de forecast/classificacao_service):
+# as análises recalculam sobre as tabelas gold e o Isolation Forest por RA é
+# caro (~10 s), então repetições dentro da janela são servidas sem recomputar.
+TTL_CACHE_SEGUNDOS = 1800
+_cache_resultados: dict[str, tuple[float, dict]] = {}
+
+
+def limpar_cache() -> None:
+    """Descarta todos os resultados em cache (útil para testes e retreinos)."""
+    _cache_resultados.clear()
+
+
+def _com_cache(chave: str, calculadora) -> dict:
+    agora = time.monotonic()
+    entrada = _cache_resultados.get(chave)
+    if entrada is not None and agora - entrada[0] < TTL_CACHE_SEGUNDOS:
+        logger.info("Resultado servido do cache", extra={"chave": chave})
+        return entrada[1]
+
+    resultado = calculadora()
+    _cache_resultados[chave] = (agora, resultado)
+    return resultado
+
+
 def _registros(df) -> list[dict]:
     """Converte um DataFrame em registros JSON-safe (NaN -> null, tipos nativos)."""
     return json.loads(df.to_json(orient="records", force_ascii=False))
@@ -52,6 +77,14 @@ def _dados() -> dict:
 
 
 def obter_correlacoes(metodo: str = "pearson", top_n: int = 5) -> dict:
+    """Matriz de correlação, pares destaque e insights (com cache TTL)."""
+    return _com_cache(
+        f"correlacoes:{metodo}:{top_n}",
+        lambda: _calcular_correlacoes(metodo=metodo, top_n=top_n),
+    )
+
+
+def _calcular_correlacoes(metodo: str = "pearson", top_n: int = 5) -> dict:
     """
     Matriz de correlação multivariada entre os indicadores gold (total DF),
     pares mais correlacionados e insights textuais.
@@ -86,6 +119,24 @@ def obter_granger(
     limite: int = 50,
     alpha: float = ALPHA_GRANGER_PADRAO,
 ) -> dict:
+    """Causalidade de Granger pairwise (com cache TTL)."""
+    return _com_cache(
+        f"granger:{max_lag}:{apenas_significantes}:{limite}:{alpha}",
+        lambda: _calcular_granger(
+            max_lag=max_lag,
+            apenas_significantes=apenas_significantes,
+            limite=limite,
+            alpha=alpha,
+        ),
+    )
+
+
+def _calcular_granger(
+    max_lag: int = 1,
+    apenas_significantes: bool = True,
+    limite: int = 50,
+    alpha: float = ALPHA_GRANGER_PADRAO,
+) -> dict:
     """
     Causalidade de Granger pairwise entre os indicadores anuais.
     Séries curtas (~10 observações) tornam o teste exploratório.
@@ -115,6 +166,11 @@ def obter_granger(
 
 
 def obter_anomalias(limite: int = 50) -> dict:
+    """Anomalias do Isolation Forest (com cache TTL)."""
+    return _com_cache(f"anomalias:{limite}", lambda: _calcular_anomalias(limite=limite))
+
+
+def _calcular_anomalias(limite: int = 50) -> dict:
     """
     Pontos anômalos (Isolation Forest) no painel RA x ano de roubos e na
     série mensal de violência contra idosos, do mais extremo ao menos extremo.
@@ -150,6 +206,14 @@ def obter_anomalias(limite: int = 50) -> dict:
 
 
 def obter_zonas_quentes(tamanho_celula_km: float = 1.5, top_n: int = 20) -> dict:
+    """Zonas quentes na malha geoespacial (com cache TTL)."""
+    return _com_cache(
+        f"zonas:{tamanho_celula_km}:{top_n}",
+        lambda: _calcular_zonas_quentes(tamanho_celula_km=tamanho_celula_km, top_n=top_n),
+    )
+
+
+def _calcular_zonas_quentes(tamanho_celula_km: float = 1.5, top_n: int = 20) -> dict:
     """
     Células da malha com mais ocorrências patrimoniais no último ano da
     tabela gold (valores distribuídos para o centróide de cada RA).

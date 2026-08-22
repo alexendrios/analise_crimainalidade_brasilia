@@ -6,20 +6,26 @@ import io.gatling.http.Predef._
 import scala.concurrent.duration._
 
 /**
- * Teste de carga da API de consumo (camada Gold + previsões).
+ * Teste de carga da API de consumo (camada Gold + previsões + análises).
  *
- * Simula usuários executando o fluxo principal do dashboard: health, listagem
- * de tabelas, resumo e dados paginados de uma tabela gold (aleatória), as
- * previsões de crimes contra a mulher e a classificação de criminalidade
- * letal por Regressão Logística.
+ * Simula dois perfis de usuário:
+ *  - "Leitura": fluxo principal do dashboard — health, listagem de tabelas,
+ *    resumo e dados paginados de uma tabela gold (aleatória), previsões e
+ *    classificação de criminalidade letal;
+ *  - "Análises executivas": correlações multivariadas, causalidade de Granger,
+ *    anomalias por Isolation Forest e zonas quentes da malha. Cada requisição
+ *    recalcula sobre as tabelas gold, então este perfil usa uma rampa bem
+ *    mais leve que a leitura.
  *
  * Parâmetros (propriedades do sistema, todos opcionais):
- *   -Dapi.baseUrl=...              base da API (padrão: http://localhost:8000)
- *   -Dcarga.usuariosIniciais=N     usuários/seg no início da rampa (padrão: 1)
- *   -Dcarga.usuariosFinais=N       usuários/seg no fim da rampa (padrão: 5)
- *   -Dcarga.duracaoRampaSegundos=N duração da rampa (padrão: 30)
- *   -Dcarga.duracaoCargaSegundos=N carga constante após a rampa (padrão: 30)
- *   -Dcarga.p95LimiteMs=N          limite do p95 (ms) para as asserções (padrão: 4000)
+ *   -Dapi.baseUrl=...                   base da API (padrão: http://localhost:8000)
+ *   -Dcarga.usuariosIniciais=N          usuários/seg no início da rampa (padrão: 1)
+ *   -Dcarga.usuariosFinais=N            usuários/seg no fim da rampa (padrão: 5)
+ *   -Dcarga.duracaoRampaSegundos=N      duração da rampa (padrão: 30)
+ *   -Dcarga.duracaoCargaSegundos=N      carga constante após a rampa (padrão: 30)
+ *   -Dcarga.p95LimiteMs=N               limite do p95 do fluxo de leitura (padrão: 4000)
+ *   -Dcarga.analiseUsuariosFinais=N     usuários/seg no perfil de análises (padrão: 1)
+ *   -Dcarga.p95AnaliseLimiteMs=N        limite do p95 do fluxo de análises (padrão: 10000)
  *
  * Exemplos:
  *   mvn gatling:test
@@ -34,6 +40,8 @@ class ApiCargaSimulation extends Simulation {
   private val duracaoRampa = sys.props.get("carga.duracaoRampaSegundos").map(_.toInt).getOrElse(30)
   private val duracaoCarga = sys.props.get("carga.duracaoCargaSegundos").map(_.toInt).getOrElse(30)
   private val p95LimiteMs = sys.props.get("carga.p95LimiteMs").map(_.toInt).getOrElse(4000)
+  private val analiseUsuariosFinais = sys.props.get("carga.analiseUsuariosFinais").map(_.toDouble).getOrElse(1.0)
+  private val p95AnaliseLimiteMs = sys.props.get("carga.p95AnaliseLimiteMs").map(_.toInt).getOrElse(10000)
 
   private val httpProtocol = http
     .baseUrl(baseUrl)
@@ -51,9 +59,13 @@ class ApiCargaSimulation extends Simulation {
 
   private val tabelaAleatoria = Iterator.continually(Map("tabela" -> tabelas(scala.util.Random.nextInt(tabelas.size))))
 
-  private val leitura = scenario("Leitura de dados (gold + previsoes + classificacao)")
+  private val nomeLeitura = "Leitura de dados (gold + previsoes + classificacao)"
+  private val nomeAnalises = "Analises executivas (correlacoes + granger + anomalias + zonas)"
+
+  private val leitura = scenario(nomeLeitura)
     .feed(tabelaAleatoria)
-    .exec(
+    .group(nomeLeitura) {
+      exec(
       http("GET /health")
         .get("/health")
         .check(status.is(200), jsonPath("$.status").is("ok"))
@@ -104,16 +116,75 @@ class ApiCargaSimulation extends Simulation {
           jsonPath("$.classificacoes[*]").count.gte(1)
         )
     )
+    }
+
+  private val analises = scenario(nomeAnalises)
+    .group(nomeAnalises) {
+      exec(
+      http("GET /analise/correlacoes")
+        .get("/analise/correlacoes")
+        .queryParam("metodo", "pearson")
+        .queryParam("top_n", "5")
+        .check(
+          status.is(200),
+          jsonPath("$.metodo").is("pearson"),
+          jsonPath("$.indicadores[*]").count.gte(2),
+          jsonPath("$.pares_destaque[*]").count.lte(5)
+        )
+    )
+    .pause(2, 4)
+    .exec(
+      http("GET /analise/granger")
+        .get("/analise/granger")
+        .queryParam("apenas_significantes", "false")
+        .queryParam("limite", "50")
+        .check(
+          status.is(200),
+          jsonPath("$.total_pares").gt("0"),
+          jsonPath("$.pares[*]").count.lte(50)
+        )
+    )
+    .pause(2, 4)
+    .exec(
+      http("GET /analise/anomalias")
+        .get("/analise/anomalias")
+        .queryParam("limite", "20")
+        .check(
+          status.is(200),
+          jsonPath("$.total_painel").gt("0"),
+          jsonPath("$.painel[*]").count.lte(20)
+        )
+    )
+    .pause(2, 4)
+    .exec(
+      http("GET /analise/zonas-quentes")
+        .get("/analise/zonas-quentes")
+        .queryParam("tamanho_celula_km", "1.5")
+        .queryParam("top_n", "10")
+        .check(
+          status.is(200),
+          jsonPath("$.ano_referencia").exists,
+          jsonPath("$.zonas[*]").count.gte(1),
+          jsonPath("$.celulas_com_ocorrencias").gt("0")
+        )
+    )
+    }
 
   setUp(
     leitura.inject(
       rampUsersPerSec(usuariosIniciais).to(usuariosFinais).during(duracaoRampa.seconds),
       constantUsersPerSec(usuariosFinais).during(duracaoCarga.seconds)
+    ),
+    analises.inject(
+      rampUsersPerSec(0.2).to(analiseUsuariosFinais).during(duracaoRampa.seconds),
+      constantUsersPerSec(analiseUsuariosFinais).during(duracaoCarga.seconds)
     )
   )
     .protocols(httpProtocol)
     .assertions(
       global.successfulRequests.percent.gte(99.0),
-      global.responseTime.percentile3.lt(p95LimiteMs)
+      // p95 avaliado por perfil: análises recalculam sobre as gold e são mais lentas
+      details(nomeLeitura).responseTime.percentile3.lt(p95LimiteMs),
+      details(nomeAnalises).responseTime.percentile3.lt(p95AnaliseLimiteMs)
     )
 }

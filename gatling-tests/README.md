@@ -1,10 +1,11 @@
 # Testes de Carga da API — Gatling
 
 Testes de **carga/performance** da API de consumo (`api/`) do projeto
-Criminalidade Brasília/DF, escritos em **Scala** com **Gatling**. Cobrem o
-fluxo principal do dashboard: health, tabelas gold, resumo, dados paginados,
-previsões de crimes contra a mulher e classificação de criminalidade letal
-por Regressão Logística.
+Criminalidade Brasília/DF, escritos em **Scala** com **Gatling**. Cobrem dois
+perfis de uso: leitura do dashboard (health, tabelas gold, resumo, dados
+paginados, previsões de crimes contra a mulher e classificação letal) e as
+análises executivas (correlações, causalidade de Granger, anomalias com
+Isolation Forest e zonas quentes na malha geoespacial).
 
 ## Pré-requisitos
 
@@ -50,17 +51,19 @@ Todos opcionais (propriedades do sistema):
 | Propriedade                    | Padrão   | Descrição                                   |
 | ------------------------------ | -------- | ------------------------------------------- |
 | `api.baseUrl`                  | `http://localhost:8000` | Base da API                    |
-| `carga.usuariosIniciais`       | `1`      | Usuários/segundo no início da rampa         |
-| `carga.usuariosFinais`         | `5`      | Usuários/segundo no fim da rampa            |
+| `carga.usuariosIniciais`       | `1`      | Usuários/segundo no início da rampa (perfil leitura) |
+| `carga.usuariosFinais`         | `5`      | Usuários/segundo no fim da rampa (perfil leitura) |
 | `carga.duracaoRampaSegundos`   | `30`     | Duração da rampa                            |
 | `carga.duracaoCargaSegundos`   | `30`     | Carga constante após a rampa                |
-| `carga.p95LimiteMs`            | `4000`   | Limite do p95 (ms) para as asserções (margem para o overhead da inferência ML na rota de previsão) |
+| `carga.p95LimiteMs`            | `4000`   | Limite do p95 (ms) do perfil de leitura (margem para o overhead da inferência ML na rota de previsão) |
+| `carga.analiseUsuariosFinais`  | `1`      | Usuários/segundo no fim da rampa (perfil análises) |
+| `carga.p95AnaliseLimiteMs`     | `10000`  | Limite do p95 (ms) do perfil de análises    |
 
 > **Nota de capacidade:** os padrões originais (`usuariosFinais=20`, `duracaoCargaSegundos=60`,
 > `p95LimiteMs=1000`) derrubavam a API local sob alta concorrência e foram ajustados para os
 > valores acima, que a API sustenta estável com os endpoints de previsão e classificação no fluxo.
-> A rota de classificação usa cache em memória (30 min), então após a primeira chamada ela
-> responde sem recarregar o banco nem re-executar inferência.
+> As rotas de classificação e `/analise/*` usam cache em memória (30 min): após a primeira chamada
+> respondem sem recarregar o banco nem re-executar inferência/treino.
 
 Exemplo de uma execução curta:
 
@@ -77,6 +80,10 @@ A `ApiCargaSimulation` falha o build se:
 
 - menos de **99%** das requisições obtiverem sucesso; ou
 - o **p95** do tempo de resposta ficar acima do limite configurado.
+
+Os limites de p95 são avaliados **por perfil** via grupos do Gatling: o grupo
+"Leitura de dados" usa `carga.p95LimiteMs` e o grupo "Analises executivas"
+usa `carga.p95AnaliseLimiteMs`.
 
 ## Relatório
 

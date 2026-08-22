@@ -10,6 +10,13 @@ from api.services import analise_service
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def limpar_cache():
+    analise_service.limpar_cache()
+    yield
+    analise_service.limpar_cache()
+
+
 @pytest.fixture
 def dados_gold():
     rng = np.random.default_rng(42)
@@ -152,6 +159,23 @@ def test_obter_zonas_quentes_sucesso(dados_gold):
     assert len(resultado["zonas"]) <= 5
     valores = [zona["ocorrencia_roubo_pedestre"] for zona in resultado["zonas"]]
     assert valores == sorted(valores, reverse=True)
+
+
+def test_cache_evita_recalculo_entre_chamadas_identicas(dados_gold):
+    with _patch_dados(dados_gold) as mock_carregar:
+        primeiro = analise_service.obter_anomalias(limite=50)
+        segundo = analise_service.obter_anomalias(limite=50)
+
+    assert primeiro == segundo
+    assert mock_carregar.call_count == 1
+
+
+def test_chaves_diferentes_nao_colidem_no_cache(dados_gold):
+    with _patch_dados(dados_gold) as mock_carregar:
+        analise_service.obter_anomalias(limite=10)
+        analise_service.obter_anomalias(limite=20)
+
+    assert mock_carregar.call_count == 2
 
 
 # ============================================================

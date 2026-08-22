@@ -69,6 +69,57 @@ class SmokeSimulation extends Simulation {
           jsonPath("$.classificacoes[*]").count.gte(1)
         )
     )
+    .pause(1)
+    .exec(
+      http("GET /analise/correlacoes")
+        .get("/analise/correlacoes")
+        .queryParam("metodo", "pearson")
+        .queryParam("top_n", "3")
+        .check(
+          status.is(200),
+          jsonPath("$.metodo").is("pearson"),
+          jsonPath("$.indicadores[*]").count.gte(2),
+          jsonPath("$.pares_destaque[*]").count.lte(3),
+          jsonPath("$.insights[*]").count.gte(1)
+        )
+    )
+    .pause(1)
+    .exec(
+      http("GET /analise/granger")
+        .get("/analise/granger")
+        .queryParam("max_lag", "1")
+        .queryParam("limite", "10")
+        .check(
+          status.is(200),
+          jsonPath("$.max_lag").is("1"),
+          jsonPath("$.alpha").is("0.05"),
+          jsonPath("$.pares[*]").count.lte(10)
+        )
+    )
+    .pause(1)
+    .exec(
+      http("GET /analise/anomalias")
+        .get("/analise/anomalias")
+        .queryParam("limite", "5")
+        .check(
+          status.is(200),
+          jsonPath("$.total_painel").gt("0"),
+          jsonPath("$.painel[*]").count.lte(5)
+        )
+    )
+    .pause(1)
+    .exec(
+      http("GET /analise/zonas-quentes")
+        .get("/analise/zonas-quentes")
+        .queryParam("tamanho_celula_km", "1.5")
+        .queryParam("top_n", "3")
+        .check(
+          status.is(200),
+          jsonPath("$.ano_referencia").exists,
+          jsonPath("$.zonas[*]").count.gte(1),
+          jsonPath("$.celulas_com_ocorrencias").gt("0")
+        )
+    )
 
   setUp(fluxo.inject(atOnceUsers(1))).protocols(httpProtocol)
 }

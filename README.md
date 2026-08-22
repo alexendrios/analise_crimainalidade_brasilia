@@ -304,13 +304,13 @@ api/
 | GET | `/analise/anomalias` | Pontos anômalos do Isolation Forest no painel RA × ano (roubo a pedestre) e na série mensal de violência contra idosos, do mais extremo ao menos extremo (`limite`) |
 | GET | `/analise/zonas-quentes` | Células da malha geoespacial com mais ocorrências patrimoniais no último ano disponível (`tamanho_celula_km`, `top_n`) |
 
-Os endpoints `/analise/*` calculam sobre as tabelas gold a cada chamada (sem cache) e retornam **503** quando as tabelas necessárias não estão materializadas.
+Os endpoints `/analise/*` calculam sobre as tabelas gold com **cache em memória de 30 min** (o treino do Isolation Forest por RA é caro — ~10 s — então chamadas idênticas dentro da janela são servidas sem recomputar) e retornam **503** quando as tabelas necessárias não estão materializadas.
 
 **Persistência do par Prophet+XGBoost (bundle):** `analysis/data_analyzer.py::save_model_with_metadata` aceita um `prophet_model` opcional — quando informado, salva `{xgb_model, prophet_model}` como um único artefato `.pkl` (formato `"bundle"`, registrado em `artifact_format` no `_meta.json`, junto dos `residual_bounds` necessários para prever sem re-treinar). O pipeline batch (`analysis/data_analyzer.py::executar_pipeline`) já salva nesse formato. Artefatos antigos, com apenas o XGBoost (`artifact_format: "legacy"`), continuam podendo ser lidos por `carregar_modelo`, mas não são usados para servir previsão (falta o Prophet).
 
 **Estratégia de serving da API:** `GET /previsao/crimes-contra-mulher` tenta primeiro `analysis.data_analyzer.localizar_ultimo_modelo_bundle` para achar o bundle mais recente em `models/` e servir a previsão diretamente a partir dele (`fonte_modelo: "artefato"` na resposta, sem treinar nada). Se ainda não existir nenhum bundle utilizável (primeira execução, artefato corrompido ou metadados incompletos), a API treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente (`fonte_modelo: "retreino"`); se `persistir_modelo=true`, esse novo treino já é salvo como bundle, disponível para a próxima chamada. Para forçar um novo treino mesmo com um bundle já disponível (ex.: dados gold atualizados), use `POST /previsao/retrain`, que ignora o cache e qualquer artefato existente, treina do zero e sempre persiste o resultado. Um cache em memória de 30 min (`usar_cache`) evita repetir trabalho — seja servindo do artefato, seja re-treinando — a cada requisição idêntica.
 
-Testes: `tests/api/` (87 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
+Testes: `tests/api/` (89 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
 
 ## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
 
@@ -366,10 +366,10 @@ Base URL configurável via `mvn test -Dkarate.env=hml` (ver `karate-tests/README
 
 ## 🏋️ Testes de Carga da API (Gatling — `gatling-tests/`)
 
-Testes de **carga/performance** da API em **Scala** com **Gatling**, cobrindo o fluxo principal do dashboard (health, gold, previsões e classificação). Duas simulações:
+Testes de **carga/performance** da API em **Scala** com **Gatling**, cobrindo dois perfis de uso: leitura do dashboard (health, gold, previsões e classificação) e análises executivas (correlações, Granger, anomalias e zonas quentes). Duas simulações:
 
-- `SmokeSimulation` — uma execução única de cada endpoint, para confirmar que a API responde antes da carga.
-- `ApiCargaSimulation` — rampa de `1` → `5` usuários/s durante 30s, seguida de 30s de carga constante, sobre uma tabela gold aleatória; falha o build se a taxa de sucesso ficar abaixo de **99%** ou o **p95** acima do limite (padrão **4000 ms**, configurável — margem para o overhead da inferência ML na rota de previsão).
+- `SmokeSimulation` — uma execução única de cada endpoint (incluindo os quatro `/analise/*`), para confirmar que a API responde antes da carga.
+- `ApiCargaSimulation` — dois cenários em paralelo: **leitura** com rampa de `1` → `5` usuários/s e **análises** com rampa de `0,2` → `1` usuários/s durante 30s, seguidos de 30s de carga constante; falha o build se a taxa de sucesso global ficar abaixo de **99%** ou se o p95 de qualquer perfil estourar seu limite (`4000 ms` para leitura, `10000 ms` para análises — avaliados por grupos do Gatling).
 
 ```bash
 # Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
@@ -379,7 +379,7 @@ mvn gatling:test -Dgatling.simulationClass=criminalidade.api.SmokeSimulation
 # Relatório HTML estático em target/gatling/<simulacao>/index.html
 ```
 
-Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, `carga.usuariosIniciais`, `carga.usuariosFinais`, `carga.duracaoRampaSegundos`, `carga.duracaoCargaSegundos`, `carga.p95LimiteMs` — ver `gatling-tests/README.md`. A primeira execução registrada (`smoke.log`) falhou por **`Connection refused`** (API não estava no ar durante a rodada), não por bug de código.
+Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, `carga.usuariosIniciais`, `carga.usuariosFinais`, `carga.duracaoRampaSegundos`, `carga.duracaoCargaSegundos`, `carga.p95LimiteMs`, `carga.analiseUsuariosFinais`, `carga.p95AnaliseLimiteMs` — ver `gatling-tests/README.md`. A primeira execução registrada (`smoke.log`) falhou por **`Connection refused`** (API não estava no ar durante a rodada), não por bug de código.
 
 > **Ajuste de capacidade (commit `99a0823`):** os padrões originais da rampa (`20` usuários/s finais, 60s de carga, p95 de 1000 ms) derrubavam a API local sob alta concorrência. Os defaults foram reduzidos para `5` usuários/s e 30s de carga, e o limite de p95 ampliado para 4000 ms — valores que a API sustenta estável com o endpoint de previsão (Prophet+XGBoost) no fluxo. Para cenários mais agressivos, sobrecarregue via propriedades do sistema (ex.: `-Dcarga.usuariosFinais=10`).
 
