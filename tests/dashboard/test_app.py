@@ -172,6 +172,34 @@ def test_app_series_exclui_tabelas_nao_serie_temporal():
     assert "Crimes letais" in opcoes
 
 
+def test_app_mapa_exclui_tabelas_sem_regiao():
+    tabelas = [
+        TABELA,
+        TABELA_IDADES,
+        {"nome": "violencia_idosos_gold", "disponivel_no_banco": True},
+        {"nome": "violencia_idosos_mensais_gold", "disponivel_no_banco": True},
+        {"nome": "violencia_idosos_sexo_gold", "disponivel_no_banco": True},
+        {"nome": "desaparecidos_regiao_gold", "disponivel_no_banco": True},
+        {"nome": "desaparecidos_idade_sexo_gold", "disponivel_no_banco": True},
+        {"nome": "desaparecidos_localizados_gold", "disponivel_no_banco": True},
+    ]
+    pads = list(_pads())
+    pads[0] = patch("dashboard.api_client.listar_tabelas", return_value=tabelas)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    opcoes = at.tabs[2].selectbox[0].options
+    assert "Violência contra idosos" not in opcoes
+    assert "Violência contra idosos — série mensal" not in opcoes
+    assert "Violência contra idosos — por sexo" not in opcoes
+    assert "Desaparecidos — por RA" not in opcoes
+    assert "Desaparecidos — por idade e sexo" not in opcoes
+    assert "Desaparecidos — localizados" not in opcoes
+    assert "Identificação crimes contra mulher" not in opcoes
+    assert "Crimes letais" in opcoes
+
+
 def test_app_exibe_previsao_com_metricas_e_grafico():
     with _entrar(_pads()):
         at = _rodar()

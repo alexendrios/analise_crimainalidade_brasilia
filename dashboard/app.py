@@ -78,6 +78,10 @@ TABELAS_EXCLUIDAS_SERIES = {
     "desaparecidos_localizados_gold",
 }
 
+TABELAS_EXCLUIDAS_MAPA = TABELAS_EXCLUIDAS_SERIES | {
+    "identificacao_crimes_contra_mulher_gold",
+}
+
 
 @st.cache_data(ttl=600, show_spinner="Carregando dados da API...")
 def _carregar_tabela_completa(base_url: str, tabela: str) -> pd.DataFrame:
@@ -250,7 +254,11 @@ def _aba_series(base_url: str) -> None:
 
 def _aba_mapa(base_url: str) -> None:
     st.subheader("Mapa de Calor por RA")
-    tabelas = [t["nome"] for t in listar_tabelas(base_url)]
+    tabelas = [
+        t["nome"]
+        for t in listar_tabelas(base_url)
+        if t["nome"] not in TABELAS_EXCLUIDAS_MAPA
+    ]
     if not tabelas:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
