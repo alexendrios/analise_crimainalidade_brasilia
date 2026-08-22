@@ -1,44 +1,123 @@
 # analysis/relatorio.py
 """
-Exportação de relatório executivo (Markdown + PDF) com os insights das
+Exportação de relatório executivo (Markdown + HTML) com os insights das
 análises de correlação, anomalias e zonas quentes.
 
 O relatório é montado a partir de um dicionário de resultados produzido pelo
 pipeline de análise (`analysis.pipeline_analise`), mantendo este módulo
 independente da fonte dos dados e fácil de testar.
+
+O HTML é autocontido (CSS embutido, sem dependências externas) e pronto para
+compartilhamento ou impressão em PDF pelo navegador.
 """
 
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from fpdf import FPDF
-from fpdf.enums import XPos, YPos
 
 from util.log import logs
 
 logger = logs()
 
+_CSS_RELATORIO = """
+:root { --borda: #d8dee6; --destaque: #1a5276; --cinza: #5d6d7e; }
+* { box-sizing: border-box; }
+body { font-family: "Segoe UI", Roboto, Arial, sans-serif; color: #212f3d; margin: 0; background: #f4f6f8; }
+main { max-width: 960px; margin: 0 auto; padding: 24px 32px 48px; background: #ffffff; }
+header { background: var(--destaque); color: #ffffff; padding: 28px 32px; }
+header h1 { margin: 0 0 6px; font-size: 1.6em; }
+header p { margin: 0; opacity: 0.85; font-size: 0.9em; }
+h2 { color: var(--destaque); border-bottom: 2px solid var(--borda); padding-bottom: 6px; margin-top: 36px; font-size: 1.15em; }
+table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.92em; }
+th, td { border: 1px solid var(--borda); padding: 7px 10px; text-align: left; }
+th { background: #eaf1f8; color: var(--destaque); }
+tr:nth-child(even) td { background: #fafbfc; }
+li { margin: 4px 0; }
+p, li { line-height: 1.55; }
+em { color: var(--cinza); }
+code { background: #eef1f4; padding: 1px 5px; border-radius: 3px; }
+@media print { body { background: #ffffff; } main { max-width: none; } header { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+"""
 
-def localizar_fonte_unicode() -> Path | None:
+
+def _html_escape(texto: str) -> str:
+    return (
+        texto.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )
+
+
+def _inline_html(texto: str) -> str:
+    """Escapa HTML e aplica código inline, negrito e itálico."""
+    import re
+
+    escapado = _html_escape(texto)
+    escapado = re.sub(r"`([^`]+)`", r"<code>\1</code>", escapado)
+    escapado = re.sub(r"\*\*([^*]+)\*\*", r"<strong>\1</strong>", escapado)
+    escapado = re.sub(r"(?<![\w])_([^_]+)_(?![\w])", r"<em>\1</em>", escapado)
+    return escapado
+
+
+def _tabela_html(linhas: list[str]) -> str:
+    """Renderiza um bloco de linhas Markdown de tabela como <table>."""
+    cabecalho = [coluna.strip() for coluna in linhas[0].strip().strip("|").split("|")]
+    corpo = [
+        [celula.strip() for celula in linha.strip().strip("|").split("|")]
+        for linha in linhas[2:]
+    ]
+    ths = "".join(f"<th>{_inline_html(coluna)}</th>" for coluna in cabecalho)
+    trs = "".join(
+        "<tr>" + "".join(f"<td>{_inline_html(celula)}</td>" for celula in registro) + "</tr>"
+        for registro in corpo
+    )
+    return f"<table><thead><tr>{ths}</tr></thead><tbody>{trs}</tbody></table>"
+
+
+def _e_separador(linha: str) -> bool:
+    sem_marcacao = linha.replace("|", "").replace("-", "").replace(" ", "").replace(":", "")
+    return linha.strip().startswith("|") and not sem_marcacao
+
+
+def _renderizar_markdown(corpo: str) -> str:
     """
-    Procura uma fonte TTF com acentuação completa. Prefere a DejaVuSans
-    distribuída com o matplotlib do venv; aceita fallback do sistema Windows.
+    Converte o subconjunto Markdown gerado por este módulo em HTML:
+    tabelas, listas com hífen e parágrafos (com inline de **/_/`).
     """
-    candidatos = []
-    try:
-        import matplotlib
+    linhas = corpo.splitlines()
+    blocos: list[str] = []
+    indice = 0
 
-        candidatos.append(
-            Path(matplotlib.__file__).parent / "mpl-data" / "fonts" / "ttf" / "DejaVuSans.ttf"
-        )
-    except ImportError:
-        pass
-    candidatos.append(Path("C:/Windows/Fonts/arial.ttf"))
+    while indice < len(linhas):
+        linha = linhas[indice]
 
-    for candidato in candidatos:
-        if candidato.exists():
-            return candidato
-    return None
+        if (
+            linha.strip().startswith("|")
+            and indice + 1 < len(linhas)
+            and _e_separador(linhas[indice + 1])
+        ):
+            fim = indice + 2
+            while fim < len(linhas) and linhas[fim].strip().startswith("|"):
+                fim += 1
+            blocos.append(_tabela_html(linhas[indice:fim]))
+            indice = fim
+            continue
+
+        if linha.strip().startswith("- "):
+            itens = []
+            while indice < len(linhas) and linhas[indice].strip().startswith("- "):
+                itens.append(f"<li>{_inline_html(linhas[indice].strip()[2:])}</li>")
+                indice += 1
+            blocos.append("<ul>" + "".join(itens) + "</ul>")
+            continue
+
+        if linha.strip():
+            blocos.append(f"<p>{_inline_html(linha.strip())}</p>")
+        indice += 1
+
+    return "\n".join(blocos)
 
 
 def _tabela_markdown(df: pd.DataFrame, colunas: list[str] | None = None) -> str:
@@ -141,45 +220,39 @@ def salvar_markdown(conteudo: str, caminho_saida: str | Path) -> Path:
     return caminho
 
 
-def _celula(pdf: FPDF, altura: float, texto: str):
-    """multi_cell que sempre retorna o cursor para a margem esquerda."""
-    pdf.multi_cell(0, altura, texto, new_x=XPos.LMARGIN, new_y=YPos.NEXT)
-
-
-def gerar_pdf(titulo: str, secoes: list[tuple[str, str]], caminho_saida: str | Path) -> Path:
+def gerar_html(titulo: str, secoes: list[tuple[str, str]], caminho_saida: str | Path) -> Path:
     """
-    Gera o PDF do relatório executivo.
-
-    Usa fonte TTF (DejaVuSans/Arial) para acentuação correta quando
-    disponível; caso contrário cai para a core Helvetica.
+    Gera o relatório em HTML autocontido (CSS embutido, sem dependências
+    externas), pronto para compartilhamento ou impressão pelo navegador.
     """
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-
-    fonte = localizar_fonte_unicode()
-    nome_fonte = "Helvetica"
-    if fonte is not None:
-        pdf.add_font("Relatorio", "", str(fonte))
-        nome_fonte = "Relatorio"
-
-    pdf.add_page()
-
-    pdf.set_font(nome_fonte, size=17)
-    _celula(pdf, 10, titulo)
-    pdf.ln(2)
-
-    for titulo_secao, corpo in secoes:
-        pdf.set_font(nome_fonte, size=13)
-        _celula(pdf, 8, titulo_secao)
-        pdf.set_font(nome_fonte, size=10)
-        for paragrafo in corpo.splitlines():
-            _celula(pdf, 5, paragrafo if paragrafo.strip() else " ")
-        pdf.ln(3)
+    secoes_html = "".join(
+        f"<section><h2>{_html_escape(titulo_secao)}</h2>\n{_renderizar_markdown(corpo)}</section>"
+        for titulo_secao, corpo in secoes
+    )
+    documento = f"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{_html_escape(titulo)}</title>
+<style>{_CSS_RELATORIO}</style>
+</head>
+<body>
+<header>
+<h1>{_html_escape(titulo)}</h1>
+<p>Gerado em {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+</header>
+<main>
+{secoes_html}
+</main>
+</body>
+</html>
+"""
 
     caminho = Path(caminho_saida)
     caminho.parent.mkdir(parents=True, exist_ok=True)
-    pdf.output(str(caminho))
-    logger.info("Relatório PDF salvo", extra={"caminho": str(caminho)})
+    caminho.write_text(documento, encoding="utf-8")
+    logger.info("Relatório HTML salvo", extra={"caminho": str(caminho)})
     return caminho
 
 
@@ -189,12 +262,12 @@ def exportar_relatorio(
     pasta_saida: str | Path,
     nome_base: str = "relatorio_executivo",
 ) -> dict[str, Path]:
-    """Escreve `.md` e `.pdf` na pasta informada e devolve os caminhos."""
+    """Escreve `.md` e `.html` na pasta informada e devolve os caminhos."""
     pasta = Path(pasta_saida)
     pasta.mkdir(parents=True, exist_ok=True)
 
     markdown = gerar_markdown(titulo, secoes)
     caminho_md = salvar_markdown(markdown, pasta / f"{nome_base}.md")
-    caminho_pdf = gerar_pdf(titulo, secoes, pasta / f"{nome_base}.pdf")
+    caminho_html = gerar_html(titulo, secoes, pasta / f"{nome_base}.html")
 
-    return {"markdown": caminho_md, "pdf": caminho_pdf}
+    return {"markdown": caminho_md, "html": caminho_html}

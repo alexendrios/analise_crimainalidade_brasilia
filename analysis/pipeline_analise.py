@@ -9,7 +9,7 @@ Orquestra os quatro produtos do roadmap de análise:
    crimes patrimoniais, cross-section por RA);
 3. Detecção de anomalias com Isolation Forest (painel RA x ano e série
    mensal de idosos);
-4. Mapa de calor geoespacial (Folium) + relatório executivo em Markdown/PDF.
+4. Mapa de calor geoespacial (Folium) + relatório executivo em Markdown/HTML.
 
 Execução: `python -m analysis.pipeline_analise`
 """

@@ -9,7 +9,7 @@ def test_executar_analise_produz_todos_os_artefatos(dados_gold, tmp_path):
     resumo = executar_analise(pasta_saida=tmp_path)
 
     assert resumo["markdown"].exists() and resumo["markdown"].suffix == ".md"
-    assert resumo["pdf"].exists() and resumo["pdf"].suffix == ".pdf"
+    assert resumo["html"].exists() and resumo["html"].suffix == ".html"
     assert resumo["caminho_mapa"].exists() and resumo["caminho_mapa"].suffix == ".html"
 
     assert resumo["indicadores"] == 12

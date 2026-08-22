@@ -185,7 +185,7 @@ Camada de modelagem e análise que complementa a predição pontual do `data_ana
 
 ```bash
 python -m analysis.pipeline_analise
-# Saída em data/analises/: relatorio_executivo.md + .pdf e mapa_calor_roubo_pedestre.html
+# Saída em data/analises/: relatorio_executivo.md + .html e mapa_calor_roubo_pedestre.html
 ```
 
 | Módulo | O que faz |
@@ -193,7 +193,7 @@ python -m analysis.pipeline_analise
 | `analysis/correlacoes.py` | Matriz ano × indicador (12 tipos de crime das tabelas gold), correlações Pearson/Spearman, **causalidade de Granger** pairwise (com salvaguardas para séries curtas) e correlação **espacial entre tabelas gold** (violência contra idosos × patrimoniais por RA). |
 | `analysis/anomalias.py` | Detecção de outliers com **Isolation Forest** sobre features causais (lag, diferença, média móvel) — na série mensal de violência contra idosos e no painel RA × ano dos crimes patrimoniais. |
 | `analysis/mapa.py` | **Mapa de calor Folium** distribuindo os indicadores por RA na malha regular de células do `geoespacial.malha` (+ export GeoPackage via GeoPandas). |
-| `analysis/relatorio.py` | Relatório executivo em **Markdown + PDF** (fpdf2) com tabelas-síntese e insights textuais gerados a partir dos resultados. |
+| `analysis/relatorio.py` | Relatório executivo em **Markdown + HTML autocontido** (CSS embutido, sem dependências externas; imprimível em PDF pelo navegador) com tabelas-síntese e insights textuais gerados a partir dos resultados. |
 
 Resultados típicos com os dados atuais: correlação forte entre famílias patrimoniais e letais (tendência comum domina séries anuais curtas); Granger aponta `roubo_comercio` antecedendo roubo no transporte/pedestre/veículo; Spearman de **+0,63 (p=0,001)** entre violência contra idosos e crimes patrimoniais no cross-section por RA (2016); anomalias concentradas em 2020 (efeito pandemia).
 
@@ -245,7 +245,7 @@ python -m src.main
 
 # 5. Gerar as análises executivas (correlações, anomalias, mapa e relatório)
 python -m analysis.pipeline_analise
-# Saída em data/analises/: relatorio_executivo.md/.pdf + mapa_calor_roubo_pedestre.html
+# Saída em data/analises/: relatorio_executivo.md/.html + mapa_calor_roubo_pedestre.html
 
 # 6. Rodar a suíte de testes
 pytest
@@ -263,7 +263,7 @@ cd karate-tests && mvn test                # E2E (relatório Allure em target/al
 cd ../gatling-tests && mvn gatling:test    # carga (relatório em target/gatling/<simulacao>/index.html)
 ```
 
-> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`, `streamlit`, `plotly`, `folium`/`geopandas`/`fpdf2`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
+> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`, `streamlit`, `plotly`, `folium`/`geopandas`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
 
 ## 🌐 Camada de Consumo (API — `api/`)
 
@@ -397,7 +397,7 @@ Registro das direções de evolução. Itens com ✅ **já existem no código** 
 - ✅ **Análise de correlação multivariada implementada** — matriz Pearson/Spearman entre 12 indicadores gold, causalidade de Granger pairwise e correlação espacial idosos × patrimoniais por RA (`analysis/correlacoes.py`). Ver seção "📈 Análises Executivas".
 - ✅ **Visualização geoespacial implementada** — mapa de calor Folium sobre a malha de células + export GeoPackage/GeoPandas (`analysis/mapa.py`). Ver seção "📈 Análises Executivas".
 - ✅ **Detecção de outliers/anomalias implementada** — Isolation Forest na série mensal de idosos e no painel RA × ano (`analysis/anomalias.py`). Ver seção "📈 Análises Executivas".
-- ✅ **Exportação de relatório executivo implementada** — Markdown + PDF com os insights de cada análise (`analysis/relatorio.py`, orquestrado por `python -m analysis.pipeline_analise`). Ver seção "📈 Análises Executivas".
+- ✅ **Exportação de relatório executivo implementada** — Markdown + HTML autocontido com os insights de cada análise (`analysis/relatorio.py`, orquestrado por `python -m analysis.pipeline_analise`). Ver seção "📈 Análises Executivas".
 
 ### Camada de consumo
 - ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.

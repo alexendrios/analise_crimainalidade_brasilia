@@ -2,9 +2,10 @@ import pandas as pd
 import pytest
 
 from analysis.relatorio import (
+    _renderizar_markdown,
     exportar_relatorio,
+    gerar_html,
     gerar_markdown,
-    localizar_fonte_unicode,
     montar_relatorio,
     salvar_markdown,
     _tabela_markdown,
@@ -92,7 +93,7 @@ def test_gerar_markdown_estrutura_documento():
     assert documento.rstrip("\n").endswith("- item")
 
 
-def test_exportar_relatorio_cria_md_e_pdf_validos(tmp_path):
+def test_exportar_relatorio_cria_md_e_html_validos(tmp_path):
     artefatos = exportar_relatorio(
         "Relatório de Teste",
         [("Resumo", "Insight com acentuação: violência, região.\n")],
@@ -103,19 +104,51 @@ def test_exportar_relatorio_cria_md_e_pdf_validos(tmp_path):
     assert "# Relatório de Teste" in markdown
     assert "violência" in markdown
 
-    pdf_bytes = artefatos["pdf"].read_bytes()
-    assert pdf_bytes.startswith(b"%PDF")
-    assert len(pdf_bytes) > 500
+    html = artefatos["html"].read_text(encoding="utf-8")
+    assert html.startswith("<!DOCTYPE html>")
+    assert 'lang="pt-BR"' in html
+    assert "Relatório de Teste" in html
+    assert "Gerado em" in html
+
+
+def test_gerar_html_renderiza_tabela_lista_e_inline(tmp_path):
+    secoes = [
+        (
+            "Seção Completa",
+            "| a | b |\n| --- | --- |\n| 1 | **destaque** |\n\n- item um\n- item dois\n\n_nota final_\n",
+        )
+    ]
+
+    caminho = gerar_html("Doc", secoes, tmp_path / "rel.html")
+    html = caminho.read_text(encoding="utf-8")
+
+    assert "<table>" in html and "<th>a</th>" in html
+    assert "<strong>destaque</strong>" in html
+    assert "<ul><li>item um</li><li>item dois</li></ul>" in html
+    assert "<em>nota final</em>" in html
+    assert "<style>" in html  # CSS embutido (autocontido)
+
+
+def test_renderizar_markdown_escapa_html_perigoso():
+    renderizado = _renderizar_markdown("<script>alert('x')</script>\n")
+
+    assert "<script>" not in renderizado
+    assert "&lt;script&gt;" in renderizado
+
+
+def test_renderizar_markdown_codigo_inline():
+    renderizado = _renderizar_markdown("Mapa em: `data/analises/mapa.html`\n")
+
+    assert "<code>data/analises/mapa.html</code>" in renderizado
+
+
+def test_tabela_html_com_celulas_vazias():
+    renderizado = _renderizar_markdown("| a | b |\n| --- | --- |\n| x |  |\n")
+
+    assert "<td></td>" in renderizado
 
 
 def test_salvar_markdown_escreve_utf8(tmp_path):
     caminho = salvar_markdown("# Acentuação: ação\n", tmp_path / "rel.md")
 
     assert caminho.read_text(encoding="utf-8").endswith("ação\n")
-
-
-def test_fonte_unicode_encontrada_no_ambiente():
-    fonte = localizar_fonte_unicode()
-
-    assert fonte is not None
-    assert fonte.exists()
