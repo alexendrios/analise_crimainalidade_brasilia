@@ -25,6 +25,47 @@ DADOS = {
 
 RESUMO = {"tabela": "crimes_letais_gold", "linhas": 2, "colunas": 3, "nulos_total": 0}
 
+DADOS_DESAPARECIDOS_IDADE_SEXO = {
+    "tabela": "desaparecidos_idade_sexo_gold",
+    "total_linhas": 4,
+    "total_paginas": 1,
+    "registros": [
+        {"ano": 2020, "faixa_etaria": "0 A 17 ANOS", "sexo": "MASCULINO", "quantidade": 6},
+        {"ano": 2020, "faixa_etaria": "0 A 17 ANOS", "sexo": "FEMININO", "quantidade": 4},
+        {"ano": 2020, "faixa_etaria": "18 A 29 ANOS", "sexo": "MASCULINO", "quantidade": 10},
+        {"ano": 2020, "faixa_etaria": "18 A 29 ANOS", "sexo": "FEMININO", "quantidade": 8},
+    ],
+}
+
+DADOS_DESAPARECIDOS_LOCALIZADOS = {
+    "tabela": "desaparecidos_localizados_gold",
+    "total_linhas": 2,
+    "total_paginas": 1,
+    "registros": [
+        {"ano": 2021, "faixa_etaria": "0 A 17 ANOS", "status": "LOCALIZADOS", "quantidade": 30},
+        {"ano": 2021, "faixa_etaria": "0 A 17 ANOS", "status": "AINDA DESAPARECIDOS", "quantidade": 12},
+    ],
+}
+
+DADOS_DESAPARECIDOS_REGIAO = {
+    "tabela": "desaparecidos_regiao_gold",
+    "total_linhas": 2,
+    "total_paginas": 1,
+    "registros": [
+        {"regiao_administrativa": "Ceilândia", "ocorrencias_2020": 100, "ocorrencias_2021": 120},
+        {"regiao_administrativa": "Taguatinga", "ocorrencias_2020": 50, "ocorrencias_2021": 60},
+    ],
+}
+
+
+def _obter_dados_por_tabela(tabela, *args, **kwargs):
+    mapeamento = {
+        "desaparecidos_idade_sexo_gold": DADOS_DESAPARECIDOS_IDADE_SEXO,
+        "desaparecidos_localizados_gold": DADOS_DESAPARECIDOS_LOCALIZADOS,
+        "desaparecidos_regiao_gold": DADOS_DESAPARECIDOS_REGIAO,
+    }
+    return mapeamento.get(tabela, DADOS)
+
 TABELA_IDADES = {"nome": "identificacao_crimes_contra_mulher_gold", "disponivel_no_banco": True}
 
 DADOS_IDADES = {
@@ -526,6 +567,39 @@ def test_app_identificacao_crimes_nao_oferece_seletor_de_tabela():
     assert len(aba.get("plotly_chart")) >= 1
 
 
+def test_app_aba_desaparecidos_renderiza_quatro_graficos():
+    pads = list(_pads())
+    pads[1] = patch("dashboard.api_client.obter_dados", side_effect=_obter_dados_por_tabela)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    aba = at.tabs[4]
+    assert len(aba.get("plotly_chart")) == 4
+    assert not aba.warning
+
+
+def test_app_aba_desaparecidos_sem_tabelas_informa_usuario():
+    pads = list(_pads())
+    pads[1] = patch(
+        "dashboard.api_client.obter_dados",
+        side_effect=lambda tabela, *args, **kwargs: {
+            "tabela": tabela,
+            "total_linhas": 0,
+            "total_paginas": 1,
+            "registros": [],
+        },
+    )
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any(
+        "Nenhuma tabela de desaparecidos foi materializada" in i.value
+        for i in at.tabs[4].info
+    )
+
+
 def test_app_serie_categorica_oferece_meio_utilizado_e_motivacao():
     dados = {
         "tabela": "identificacao_crimes_contra_mulher_gold",
@@ -632,7 +706,7 @@ def test_app_aba_classificacao_renderiza_graficos_metricas_e_tabela():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[5]
+    aba = at.tabs[6]
     valores = [m.value for m in aba.metric]
     assert "artefato" in valores  # fonte do modelo
     assert any("10.66" == str(v) for v in valores)  # limiar da mediana
@@ -658,7 +732,7 @@ def test_app_aba_classificacao_sem_classificacoes_informa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("não contém classificações" in i.value for i in at.tabs[5].info)
+    assert any("não contém classificações" in i.value for i in at.tabs[6].info)
 
 
 def test_app_aba_classificacao_falha_exibe_error():
@@ -671,7 +745,7 @@ def test_app_aba_classificacao_falha_exibe_error():
         at = _rodar()
 
     assert not at.exception
-    assert any("classificação indisponível" in e.value for e in at.tabs[5].error)
+    assert any("classificação indisponível" in e.value for e in at.tabs[6].error)
 
 
 def test_app_aba_classificacao_sem_metricas_holdout_renderiza():

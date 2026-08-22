@@ -8,9 +8,13 @@ unitários diretos sem servidor.
 """
 
 from typing import Any, Dict, List, Optional
+import re
 
 import pandas as pd
 import plotly.graph_objects as go
+
+CORES_SEXO = {"masculino": "#5dade2", "feminino": "#ec7063"}
+CORES_STATUS = {"localizados": "#58d68d", "ainda desaparecidos": "#e74c3c"}
 
 COLUNA_ANO_PREFERIDA = "ano"
 COLUNA_REGIAO = "regiao_administrativa"
@@ -574,3 +578,142 @@ def matriz_confusao_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
         index=["real: baixa", "real: alta"],
         columns=["previsto: baixa", "previsto: alta"],
     )
+
+
+# =========================================================
+# Desaparecidos — gráficos de barra
+# =========================================================
+
+def _barra_por_categoria(
+    df: pd.DataFrame,
+    coluna_categoria: str,
+    titulo: str,
+    eixo_x: str,
+    cores_por_categoria: Optional[Dict[str, str]] = None,
+    ordenacao: Optional[List[str]] = None,
+) -> go.Figure:
+    if coluna_categoria not in df.columns or "quantidade" not in df.columns:
+        raise SemDadosParaGraficoError(
+            f"A tabela não possui as colunas '{coluna_categoria}' e 'quantidade'."
+        )
+    dados = df[df[coluna_categoria].notna()].copy()
+    dados[coluna_categoria] = dados[coluna_categoria].astype(str).str.strip()
+    dados = dados[dados[coluna_categoria] != ""]
+    if dados.empty:
+        raise SemDadosParaGraficoError("Não há registros com a categoria preenchida.")
+
+    totais = dados.groupby(coluna_categoria)["quantidade"].sum()
+    if ordenacao is not None:
+        totais = totais.reindex([c for c in ordenacao if c in totais.index])
+
+    categorias = [str(c) for c in totais.index]
+    if cores_por_categoria:
+        cores = [
+            cores_por_categoria.get(categoria.lower(), "#7f8c8d")
+            for categoria in categorias
+        ]
+    else:
+        cores = None
+
+    fig = go.Figure(
+        go.Bar(x=categorias, y=totais.values, marker_color=cores)
+    )
+    fig.update_layout(
+        title=titulo,
+        xaxis_title=eixo_x,
+        yaxis_title="Quantidade",
+        height=460,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+def _ordem_faixa_etaria(faixas: List[str]) -> List[str]:
+    """Ordena faixas etárias pelo número inicial do rótulo; sem número vai para o fim."""
+    def chave(faixa: str):
+        m = re.match(r"\s*(\d+)", faixa)
+        return (0, int(m.group(1))) if m else (1, 0)
+
+    return sorted(faixas, key=chave)
+
+
+def figura_desaparecidos_por_sexo(df: pd.DataFrame) -> go.Figure:
+    """Barra com o total de desaparecidos por sexo."""
+    return _barra_por_categoria(
+        df,
+        "sexo",
+        "Desaparecidos por sexo",
+        "Sexo",
+        cores_por_categoria=CORES_SEXO,
+    )
+
+
+def figura_desaparecidos_por_idade(df: pd.DataFrame) -> go.Figure:
+    """Barra com o total de desaparecidos por faixa etária."""
+    if "faixa_etaria" not in df.columns:
+        raise SemDadosParaGraficoError("A tabela não possui a coluna 'faixa_etaria'.")
+    ordem = _ordem_faixa_etaria(
+        df["faixa_etaria"].dropna().astype(str).str.strip().unique().tolist()
+    )
+    return _barra_por_categoria(
+        df,
+        "faixa_etaria",
+        "Desaparecidos por faixa etária",
+        "Faixa etária",
+        ordenacao=ordem,
+    )
+
+
+def figura_desaparecidos_localizados(df: pd.DataFrame) -> go.Figure:
+    """Barra comparando localizados e ainda desaparecidos."""
+    return _barra_por_categoria(
+        df,
+        "status",
+        "Localizados × ainda desaparecidos",
+        "Status",
+        cores_por_categoria=CORES_STATUS,
+    )
+
+
+def figura_desaparecidos_por_ra(df: pd.DataFrame) -> go.Figure:
+    """Barras agrupadas por RA comparando ocorrências de 2020 e 2021."""
+    colunas_necessarias = ["regiao_administrativa", "ocorrencias_2020", "ocorrencias_2021"]
+    if any(c not in df.columns for c in colunas_necessarias):
+        raise SemDadosParaGraficoError(
+            "A tabela exige as colunas 'regiao_administrativa', "
+            "'ocorrencias_2020' e 'ocorrencias_2021'."
+        )
+
+    ranking = (
+        df.groupby("regiao_administrativa")[["ocorrencias_2020", "ocorrencias_2021"]]
+        .sum()
+        .sort_values(["ocorrencias_2021", "ocorrencias_2020"], ascending=True)
+    )
+
+    fig = go.Figure()
+    for coluna, nome, cor in [
+        ("ocorrencias_2020", "2020", "#7f8c8d"),
+        ("ocorrencias_2021", "2021", "#e74c3c"),
+    ]:
+        fig.add_trace(
+            go.Bar(
+                y=[str(ra) for ra in ranking.index],
+                x=ranking[coluna],
+                name=nome,
+                orientation="h",
+                marker_color=cor,
+            )
+        )
+
+    fig.update_layout(
+        title="Desaparecimentos por RA — 2020 × 2021",
+        barmode="group",
+        legend_title="Ano",
+        height=max(420, 26 * len(ranking)),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig

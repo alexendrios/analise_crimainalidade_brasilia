@@ -10,6 +10,10 @@ from dashboard.visualizacoes import (
     colunas_categoricas,
     colunas_numericas,
     colunas_valor_indicadores,
+    figura_desaparecidos_localizados,
+    figura_desaparecidos_por_idade,
+    figura_desaparecidos_por_ra,
+    figura_desaparecidos_por_sexo,
     figura_heatmap_probabilidade,
     figura_heatmap_ra_ano,
     figura_historico_idades,
@@ -412,3 +416,90 @@ def test_matriz_confusao_malformada_levanta_erro():
 
     with pytest.raises(SemDadosParaGraficoError, match="formato inesperado"):
         matriz_confusao_para_dataframe({})
+
+
+def _df_desaparecidos_idade_sexo():
+    return pd.DataFrame(
+        {
+            "ano": [2020, 2020, 2020, 2020],
+            "faixa_etaria": ["18 A 29 ANOS", "0 A 17 ANOS", "18 A 29 ANOS", "0 A 17 ANOS"],
+            "sexo": ["MASCULINO", "MASCULINO", "FEMININO", "FEMININO"],
+            "quantidade": [10, 6, 8, 4],
+        }
+    )
+
+
+def _df_desaparecidos_localizados():
+    return pd.DataFrame(
+        {
+            "ano": [2021, 2021],
+            "faixa_etaria": ["0 A 17 ANOS", "0 A 17 ANOS"],
+            "status": ["AINDA DESAPARECIDOS", "LOCALIZADOS"],
+            "quantidade": [12, 30],
+        }
+    )
+
+
+def _df_desaparecidos_regiao():
+    return pd.DataFrame(
+        {
+            "regiao_administrativa": ["Taguatinga", "Ceilândia"],
+            "ocorrencias_2020": [50, 100],
+            "ocorrencias_2021": [60, 120],
+        }
+    )
+
+
+def test_figura_desaparecidos_por_sexo_soma_por_categoria():
+    fig = figura_desaparecidos_por_sexo(_df_desaparecidos_idade_sexo())
+
+    assert isinstance(fig, go.Figure)
+    assert list(fig.data[0].x) == ["FEMININO", "MASCULINO"]
+    assert list(fig.data[0].y) == [12, 16]
+
+
+def test_figura_desaparecidos_por_idade_ordena_faixas():
+    fig = figura_desaparecidos_por_idade(_df_desaparecidos_idade_sexo())
+
+    assert list(fig.data[0].x) == ["0 A 17 ANOS", "18 A 29 ANOS"]
+    assert list(fig.data[0].y) == [10, 18]
+
+
+def test_figura_desaparecidos_por_idade_sem_numero_vai_para_o_fim():
+    df = pd.DataFrame(
+        {"faixa_etaria": ["NÃO INFORMADO", "0 A 17 ANOS"], "quantidade": [3, 5]}
+    )
+    fig = figura_desaparecidos_por_idade(df)
+
+    assert list(fig.data[0].x) == ["0 A 17 ANOS", "NÃO INFORMADO"]
+
+
+def test_figura_desaparecidos_localizados_compara_status():
+    fig = figura_desaparecidos_localizados(_df_desaparecidos_localizados())
+
+    assert sorted(fig.data[0].x) == ["AINDA DESAPARECIDOS", "LOCALIZADOS"]
+    assert sorted(fig.data[0].y) == [12, 30]
+
+
+def test_figura_desaparecidos_por_ra_agrupa_os_dois_anos():
+    fig = figura_desaparecidos_por_ra(_df_desaparecidos_regiao())
+
+    assert len(fig.data) == 2
+    nomes = {trace.name for trace in fig.data}
+    assert nomes == {"2020", "2021"}
+    assert list(fig.data[1].y) == ["Taguatinga", "Ceilândia"]
+    assert list(fig.data[1].x) == [60, 120]
+
+
+@pytest.mark.parametrize(
+    "figura",
+    [
+        figura_desaparecidos_por_sexo,
+        figura_desaparecidos_por_idade,
+        figura_desaparecidos_localizados,
+        figura_desaparecidos_por_ra,
+    ],
+)
+def test_figuras_desaparecidos_sem_colunas_levanta_erro(figura):
+    with pytest.raises(SemDadosParaGraficoError):
+        figura(pd.DataFrame({"outra": [1]}))

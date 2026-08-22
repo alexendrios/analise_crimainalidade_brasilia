@@ -47,6 +47,10 @@ from dashboard.visualizacoes import (
     figura_heatmap_probabilidade,
     figura_heatmap_ra_ano,
     figura_historico_idades,
+    figura_desaparecidos_localizados,
+    figura_desaparecidos_por_idade,
+    figura_desaparecidos_por_ra,
+    figura_desaparecidos_por_sexo,
     figura_previsao,
     figura_ranking_probabilidade,
     figura_ranking_ra,
@@ -83,6 +87,9 @@ TABELAS_EXCLUIDAS_MAPA = TABELAS_EXCLUIDAS_SERIES | {
 }
 
 TABELA_IDENTIFICACAO_CRIMES = "identificacao_crimes_contra_mulher_gold"
+TABELA_DESAPARECIDOS_IDADE_SEXO = "desaparecidos_idade_sexo_gold"
+TABELA_DESAPARECIDOS_LOCALIZADOS = "desaparecidos_localizados_gold"
+TABELA_DESAPARECIDOS_REGIAO = "desaparecidos_regiao_gold"
 
 
 @st.cache_data(ttl=600, show_spinner="Carregando dados da API...")
@@ -343,6 +350,36 @@ def _aba_idades(base_url: str) -> None:
     st.dataframe(_resumo_idades(df, colunas_idade), width="stretch")
 
 
+def _aba_desaparecidos(base_url: str) -> None:
+    st.subheader("Desaparecidos")
+    df_idade_sexo = _carregar_tabela_completa(base_url, TABELA_DESAPARECIDOS_IDADE_SEXO)
+    df_localizados = _carregar_tabela_completa(base_url, TABELA_DESAPARECIDOS_LOCALIZADOS)
+    df_regiao = _carregar_tabela_completa(base_url, TABELA_DESAPARECIDOS_REGIAO)
+
+    graficos = [
+        (df_idade_sexo, figura_desaparecidos_por_sexo),
+        (df_idade_sexo, figura_desaparecidos_por_idade),
+        (df_localizados, figura_desaparecidos_localizados),
+        (df_regiao, figura_desaparecidos_por_ra),
+    ]
+    if all(df.empty for df, _ in graficos):
+        st.info("Nenhuma tabela de desaparecidos foi materializada no banco.")
+        return
+
+    linha1 = st.columns(2)
+    linha2 = st.columns(2)
+    slots = [linha1[0], linha1[1], linha2[0], linha2[1]]
+    for slot, (df, figura) in zip(slots, graficos):
+        with slot:
+            if df.empty:
+                st.info("A tabela ainda não foi materializada no banco.")
+                continue
+            try:
+                st.plotly_chart(figura(df), width="stretch")
+            except SemDadosParaGraficoError as exc:
+                st.warning(str(exc))
+
+
 def _aba_previsoes(base_url: str) -> None:
     st.subheader("Previsão — Crimes contra a Mulher (Prophet + XGBoost)")
     horizonte = st.slider("Horizonte (anos)", min_value=1, max_value=10, value=5, key="prev_horizonte")
@@ -520,8 +557,17 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_visao, aba_series, aba_mapa, aba_idades, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
-        ["Visão Geral", "Séries Temporais", "Mapa de Calor", "Identificação crimes", "Previsões", "Classificação", "Tabelas"]
+    aba_visao, aba_series, aba_mapa, aba_identificacao, aba_desaparecidos, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
+        [
+            "Visão Geral",
+            "Séries Temporais",
+            "Mapa de Calor",
+            "Identificação crimes",
+            "Desaparecidos",
+            "Previsões",
+            "Classificação",
+            "Tabelas",
+        ]
     )
 
     try:
@@ -531,8 +577,10 @@ def main() -> None:
             _aba_series(base_url)
         with aba_mapa:
             _aba_mapa(base_url)
-        with aba_idades:
+        with aba_identificacao:
             _aba_idades(base_url)
+        with aba_desaparecidos:
+            _aba_desaparecidos(base_url)
         with aba_previsoes:
             _aba_previsoes(base_url)
         with aba_classificacao:
