@@ -677,6 +677,164 @@ def figura_desaparecidos_localizados(df: pd.DataFrame) -> go.Figure:
     )
 
 
+def _barras_agrupadas_por_ano(
+    df: pd.DataFrame,
+    colunas_valor: List[str],
+    nomes: List[str],
+    cores: Optional[List[str]] = None,
+) -> go.Figure:
+    """Barras agrupadas por ano a partir de uma coluna numérica por série."""
+    coluna_ano = coluna_ano_disponivel(df)
+    if coluna_ano is None:
+        raise SemDadosParaGraficoError(
+            "Não há coluna de ano disponível para construir o gráfico."
+        )
+    ausentes = [c for c in colunas_valor if c not in df.columns]
+    if ausentes:
+        raise SemDadosParaGraficoError(
+            f"A tabela não possui as colunas {', '.join(ausentes)}."
+        )
+
+    tabela = df.groupby(coluna_ano)[colunas_valor].sum().sort_index()
+    anos = [str(int(a)) for a in tabela.index]
+
+    fig = go.Figure()
+    for indice, (coluna, nome) in enumerate(zip(colunas_valor, nomes)):
+        cor = cores[indice] if cores else None
+        fig.add_trace(
+            go.Bar(
+                x=anos,
+                y=tabela[coluna],
+                name=nome,
+                marker_color=cor,
+            )
+        )
+
+    fig.update_layout(
+        legend_title="Série",
+        height=460,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+def figura_idosos_por_ra(df: pd.DataFrame) -> go.Figure:
+    """Barras agrupadas por RA comparando jan–ago de 2016 e 2017."""
+    colunas_necessarias = ["regiao_administrativa", "jan_ago_2016", "jan_ago_2017"]
+    if any(c not in df.columns for c in colunas_necessarias):
+        raise SemDadosParaGraficoError(
+            "A tabela exige as colunas 'regiao_administrativa', "
+            "'jan_ago_2016' e 'jan_ago_2017'."
+        )
+
+    ranking = (
+        df.groupby("regiao_administrativa")[["jan_ago_2016", "jan_ago_2017"]]
+        .sum()
+        .sort_values(["jan_ago_2017", "jan_ago_2016"], ascending=True)
+    )
+
+    fig = go.Figure()
+    for coluna, nome, cor in [
+        ("jan_ago_2016", "2016", "#5dade2"),
+        ("jan_ago_2017", "2017", "#e74c3c"),
+    ]:
+        fig.add_trace(
+            go.Bar(
+                y=[str(ra) for ra in ranking.index],
+                x=ranking[coluna],
+                name=nome,
+                orientation="h",
+                marker_color=cor,
+            )
+        )
+
+    fig.update_layout(
+        title="Violência contra idosos — ocorrências por RA (jan–ago)",
+        barmode="group",
+        xaxis_title="Ocorrências",
+        yaxis_title="Região Administrativa",
+        legend_title="Ano",
+        height=max(420, 26 * len(ranking)),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+def figura_idosos_ocorrencias(df: pd.DataFrame) -> go.Figure:
+    """Barras agrupadas por ano: total de ocorrências × dentro de casa."""
+    fig = _barras_agrupadas_por_ano(
+        df,
+        ["ocorrencias", "violencia_dentro_de_casa"],
+        ["Ocorrências", "Violência dentro de casa"],
+        cores=["#e74c3c", "#7f8c8d"],
+    )
+    fig.update_layout(
+        title="Violência contra idosos — ocorrências por ano",
+        xaxis_title="Ano",
+        yaxis_title="Ocorrências",
+    )
+    return fig
+
+
+def figura_idosos_mensal(df: pd.DataFrame) -> go.Figure:
+    """Barras da série mensal de fatos registrados contra idosos."""
+    colunas_necessarias = ["ano", "mes_num", "fato"]
+    if any(c not in df.columns for c in colunas_necessarias):
+        raise SemDadosParaGraficoError(
+            "A tabela exige as colunas 'ano', 'mes_num' e 'fato'."
+        )
+
+    dados = df.sort_values(["ano", "mes_num"]).copy()
+    rotulo_mes = (
+        dados["mes"].astype(str).str.title() + "/" + dados["ano"].astype(int).astype(str)
+        if "mes" in df.columns
+        else dados["mes_num"].astype(int).astype(str) + "/" + dados["ano"].astype(int).astype(str)
+    )
+
+    series = [("fato", "Fatos", "#e74c3c")]
+    if "registro" in df.columns:
+        series.append(("registro", "Registros", "#5dade2"))
+
+    fig = go.Figure()
+    for coluna, nome, cor in series:
+        fig.add_trace(
+            go.Bar(x=rotulo_mes.tolist(), y=dados[coluna], name=nome, marker_color=cor)
+        )
+
+    fig.update_layout(
+        title="Violência contra idosos — série mensal",
+        xaxis_title="Mês",
+        yaxis_title="Ocorrências",
+        barmode="group",
+        legend_title="Série",
+        height=460,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+def figura_idosos_por_sexo(df: pd.DataFrame) -> go.Figure:
+    """Barras agrupadas por ano comparando vítimas do sexo masculino × feminino."""
+    fig = _barras_agrupadas_por_ano(
+        df,
+        ["masculino", "feminino"],
+        ["Masculino", "Feminino"],
+        cores=[CORES_SEXO["masculino"], CORES_SEXO["feminino"]],
+    )
+    fig.update_layout(
+        title="Violência contra idosos — vítimas por sexo",
+        xaxis_title="Ano",
+        yaxis_title="Vítimas",
+    )
+    return fig
+
+
 def figura_desaparecidos_por_ra(df: pd.DataFrame) -> go.Figure:
     """Barras agrupadas por RA comparando ocorrências de 2020 e 2021."""
     colunas_necessarias = ["regiao_administrativa", "ocorrencias_2020", "ocorrencias_2021"]

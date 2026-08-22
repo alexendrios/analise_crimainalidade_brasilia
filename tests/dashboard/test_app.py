@@ -57,12 +57,56 @@ DADOS_DESAPARECIDOS_REGIAO = {
     ],
 }
 
+DADOS_IDOSOS_RESUMO = {
+    "tabela": "violencia_idosos_gold",
+    "total_linhas": 2,
+    "total_paginas": 1,
+    "registros": [
+        {"ranking": 1, "regiao_administrativa": "GAMA", "jan_ago_2016": 88, "jan_ago_2017": 51},
+        {"ranking": 2, "regiao_administrativa": "BRASILIA", "jan_ago_2016": 21, "jan_ago_2017": 43},
+    ],
+}
+
+DADOS_IDOSOS_OCORRENCIAS = {
+    "tabela": "violencia_idosos_ocorrencias_gold",
+    "total_linhas": 2,
+    "total_paginas": 1,
+    "registros": [
+        {"ano": 2010, "ocorrencias": 55, "violencia_dentro_de_casa": 22},
+        {"ano": 2011, "ocorrencias": 63, "violencia_dentro_de_casa": 25},
+    ],
+}
+
+DADOS_IDOSOS_MENSAIS = {
+    "tabela": "violencia_idosos_mensais_gold",
+    "total_linhas": 2,
+    "total_paginas": 1,
+    "registros": [
+        {"ano": 2016, "mes": "JAN", "mes_num": 1, "fato": 54, "registro": 59},
+        {"ano": 2016, "mes": "FEV", "mes_num": 2, "fato": 26, "registro": 31},
+    ],
+}
+
+DADOS_IDOSOS_SEXO = {
+    "tabela": "violencia_idosos_sexo_gold",
+    "total_linhas": 2,
+    "total_paginas": 1,
+    "registros": [
+        {"ano": 2010, "masculino": 36, "feminino": 34},
+        {"ano": 2011, "masculino": 32, "feminino": 49},
+    ],
+}
+
 
 def _obter_dados_por_tabela(tabela, *args, **kwargs):
     mapeamento = {
         "desaparecidos_idade_sexo_gold": DADOS_DESAPARECIDOS_IDADE_SEXO,
         "desaparecidos_localizados_gold": DADOS_DESAPARECIDOS_LOCALIZADOS,
         "desaparecidos_regiao_gold": DADOS_DESAPARECIDOS_REGIAO,
+        "violencia_idosos_gold": DADOS_IDOSOS_RESUMO,
+        "violencia_idosos_ocorrencias_gold": DADOS_IDOSOS_OCORRENCIAS,
+        "violencia_idosos_mensais_gold": DADOS_IDOSOS_MENSAIS,
+        "violencia_idosos_sexo_gold": DADOS_IDOSOS_SEXO,
     }
     return mapeamento.get(tabela, DADOS)
 
@@ -155,7 +199,9 @@ def _entrar(pads):
 
 
 def _rodar():
-    return AppTest.from_file(APP_PATH, default_timeout=30).run()
+    # 60s: com a aba de violência contra idosos o app consulta mais tabelas,
+    # e alguns testes deixam chamadas reais passarem quando a API está no ar.
+    return AppTest.from_file(APP_PATH, default_timeout=60).run()
 
 
 def test_app_renderiza_sem_erros():
@@ -600,6 +646,39 @@ def test_app_aba_desaparecidos_sem_tabelas_informa_usuario():
     )
 
 
+def test_app_aba_violencia_idosos_renderiza_quatro_graficos():
+    pads = list(_pads())
+    pads[1] = patch("dashboard.api_client.obter_dados", side_effect=_obter_dados_por_tabela)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    aba = at.tabs[5]
+    assert len(aba.get("plotly_chart")) == 4
+    assert not aba.warning
+
+
+def test_app_aba_violencia_idosos_sem_tabelas_informa_usuario():
+    pads = list(_pads())
+    pads[1] = patch(
+        "dashboard.api_client.obter_dados",
+        side_effect=lambda tabela, *args, **kwargs: {
+            "tabela": tabela,
+            "total_linhas": 0,
+            "total_paginas": 1,
+            "registros": [],
+        },
+    )
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any(
+        "Nenhuma tabela de violência contra idosos foi materializada" in i.value
+        for i in at.tabs[5].info
+    )
+
+
 def test_app_serie_categorica_oferece_meio_utilizado_e_motivacao():
     dados = {
         "tabela": "identificacao_crimes_contra_mulher_gold",
@@ -706,7 +785,7 @@ def test_app_aba_classificacao_renderiza_graficos_metricas_e_tabela():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[6]
+    aba = at.tabs[7]
     valores = [m.value for m in aba.metric]
     assert "artefato" in valores  # fonte do modelo
     assert any("10.66" == str(v) for v in valores)  # limiar da mediana
@@ -732,7 +811,7 @@ def test_app_aba_classificacao_sem_classificacoes_informa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("não contém classificações" in i.value for i in at.tabs[6].info)
+    assert any("não contém classificações" in i.value for i in at.tabs[7].info)
 
 
 def test_app_aba_classificacao_falha_exibe_error():
@@ -745,7 +824,7 @@ def test_app_aba_classificacao_falha_exibe_error():
         at = _rodar()
 
     assert not at.exception
-    assert any("classificação indisponível" in e.value for e in at.tabs[6].error)
+    assert any("classificação indisponível" in e.value for e in at.tabs[7].error)
 
 
 def test_app_aba_classificacao_sem_metricas_holdout_renderiza():

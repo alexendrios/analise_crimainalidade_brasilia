@@ -47,6 +47,10 @@ from dashboard.visualizacoes import (
     figura_heatmap_probabilidade,
     figura_heatmap_ra_ano,
     figura_historico_idades,
+    figura_idosos_mensal,
+    figura_idosos_ocorrencias,
+    figura_idosos_por_ra,
+    figura_idosos_por_sexo,
     figura_desaparecidos_localizados,
     figura_desaparecidos_por_idade,
     figura_desaparecidos_por_ra,
@@ -65,7 +69,7 @@ from dashboard.visualizacoes import (
     rotulo_tabela,
 )
 
-TITULO = "Criminalidade Brasília/DF — Dashboard"
+TITULO = "Criminalidade em Brasília/DF — Dashboard Analítico"
 
 TABELAS_EXCLUIDAS_VISAO_GERAL = {
     "identificacao_crimes_contra_mulher_gold",
@@ -90,6 +94,10 @@ TABELA_IDENTIFICACAO_CRIMES = "identificacao_crimes_contra_mulher_gold"
 TABELA_DESAPARECIDOS_IDADE_SEXO = "desaparecidos_idade_sexo_gold"
 TABELA_DESAPARECIDOS_LOCALIZADOS = "desaparecidos_localizados_gold"
 TABELA_DESAPARECIDOS_REGIAO = "desaparecidos_regiao_gold"
+TABELA_IDOSOS_RESUMO = "violencia_idosos_gold"
+TABELA_IDOSOS_OCORRENCIAS = "violencia_idosos_ocorrencias_gold"
+TABELA_IDOSOS_MENSAIS = "violencia_idosos_mensais_gold"
+TABELA_IDOSOS_SEXO = "violencia_idosos_sexo_gold"
 
 
 @st.cache_data(ttl=600, show_spinner="Carregando dados da API...")
@@ -130,7 +138,7 @@ def _aba_visao_geral(base_url: str) -> None:
         return
 
     tabela = st.selectbox(
-        "Tabela gold", tabelas, key="vg_tabela", format_func=rotulo_tabela
+        "Crimes", tabelas, key="vg_tabela", format_func=rotulo_tabela
     )
     df = _carregar_tabela_completa(base_url, tabela)
     if df.empty:
@@ -272,7 +280,7 @@ def _aba_mapa(base_url: str) -> None:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
 
-    tabela = st.selectbox("Tabela gold", tabelas, key="mapa_tabela", format_func=rotulo_tabela)
+    tabela = st.selectbox("Crimes", tabelas, key="mapa_tabela", format_func=rotulo_tabela)
     df = _carregar_tabela_completa(base_url, tabela)
     if df.empty:
         st.info("A tabela selecionada ainda não foi materializada no banco.")
@@ -364,6 +372,37 @@ def _aba_desaparecidos(base_url: str) -> None:
     ]
     if all(df.empty for df, _ in graficos):
         st.info("Nenhuma tabela de desaparecidos foi materializada no banco.")
+        return
+
+    linha1 = st.columns(2)
+    linha2 = st.columns(2)
+    slots = [linha1[0], linha1[1], linha2[0], linha2[1]]
+    for slot, (df, figura) in zip(slots, graficos):
+        with slot:
+            if df.empty:
+                st.info("A tabela ainda não foi materializada no banco.")
+                continue
+            try:
+                st.plotly_chart(figura(df), width="stretch")
+            except SemDadosParaGraficoError as exc:
+                st.warning(str(exc))
+
+
+def _aba_violencia_idosos(base_url: str) -> None:
+    st.subheader("Violência contra Idosos")
+    df_resumo = _carregar_tabela_completa(base_url, TABELA_IDOSOS_RESUMO)
+    df_ocorrencias = _carregar_tabela_completa(base_url, TABELA_IDOSOS_OCORRENCIAS)
+    df_mensal = _carregar_tabela_completa(base_url, TABELA_IDOSOS_MENSAIS)
+    df_sexo = _carregar_tabela_completa(base_url, TABELA_IDOSOS_SEXO)
+
+    graficos = [
+        (df_resumo, figura_idosos_por_ra),
+        (df_ocorrencias, figura_idosos_ocorrencias),
+        (df_mensal, figura_idosos_mensal),
+        (df_sexo, figura_idosos_por_sexo),
+    ]
+    if all(df.empty for df, _ in graficos):
+        st.info("Nenhuma tabela de violência contra idosos foi materializada no banco.")
         return
 
     linha1 = st.columns(2)
@@ -507,7 +546,7 @@ def _aba_tabelas(base_url: str) -> None:
         st.warning("Nenhuma tabela gold encontrada na API.")
         return
 
-    tabela = st.selectbox("Tabela gold", tabelas, key="tab_tabela", format_func=rotulo_tabela)
+    tabela = st.selectbox("Crimes", tabelas, key="tab_tabela", format_func=rotulo_tabela)
 
     try:
         resumo = obter_resumo(tabela, base_url=base_url)
@@ -557,13 +596,14 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_visao, aba_series, aba_mapa, aba_identificacao, aba_desaparecidos, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
+    aba_visao, aba_series, aba_mapa, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
         [
             "Visão Geral",
             "Séries Temporais",
             "Mapa de Calor",
             "Identificação crimes",
             "Desaparecidos",
+            "Violência contra idosos",
             "Previsões",
             "Classificação",
             "Tabelas",
@@ -581,6 +621,8 @@ def main() -> None:
             _aba_idades(base_url)
         with aba_desaparecidos:
             _aba_desaparecidos(base_url)
+        with aba_idosos:
+            _aba_violencia_idosos(base_url)
         with aba_previsoes:
             _aba_previsoes(base_url)
         with aba_classificacao:
