@@ -60,6 +60,7 @@ from dashboard.visualizacoes import (
     figura_idosos_ocorrencias,
     figura_idosos_por_ra,
     figura_idosos_por_sexo,
+    figura_mancha_criminal,
     figura_desaparecidos_localizados,
     figura_desaparecidos_por_idade,
     figura_desaparecidos_por_ra,
@@ -369,6 +370,75 @@ def _aba_idades(base_url: str) -> None:
 
     st.markdown("### Resumo")
     st.dataframe(_resumo_idades(df, colunas_idade), width="stretch")
+
+
+def _aba_mancha_criminal(base_url: str) -> None:
+    st.subheader("Mancha Criminal por RA")
+    tabelas = [
+        t["nome"]
+        for t in listar_tabelas(base_url)
+        if t["nome"] not in TABELAS_EXCLUIDAS_MAPA
+    ]
+    if not tabelas:
+        st.warning("Nenhuma tabela gold encontrada na API.")
+        return
+
+    tabela = st.selectbox("Crimes", tabelas, key="mancha_tabela", format_func=rotulo_tabela)
+    df = _carregar_tabela_completa(base_url, tabela)
+    if df.empty:
+        st.info("A tabela selecionada ainda não foi materializada no banco.")
+        return
+
+    colunas_valor = _colunas_valor(df)
+    if not colunas_valor:
+        st.info("A tabela selecionada não possui colunas numéricas para a mancha criminal.")
+        return
+    coluna_valor = st.selectbox(
+        "Coluna (indicador)", colunas_valor, key="mancha_coluna", format_func=rotulo_coluna
+    )
+
+    ano = None
+    if "ano" in df.columns:
+        anos = sorted(int(a) for a in df["ano"].dropna().unique())
+        ano = st.selectbox(
+            "Recorte temporal",
+            [None] + list(reversed(anos)),
+            index=1 if anos else 0,
+            format_func=lambda a: (
+                "Todo o período"
+                if a is None
+                else f"{a} (mais recente)" if a == max(anos) else str(a)
+            ),
+            key="mancha_ano",
+            help="Por padrão mostra o ano mais recente; escolha 'Todo o período' para somar todos os anos.",
+        )
+
+    try:
+        st.plotly_chart(figura_mancha_criminal(df, coluna_valor, ano=ano), width="stretch")
+    except SemDadosParaGraficoError as exc:
+        st.warning(str(exc))
+        return
+
+    ranking = (
+        df[df["ano"] == ano] if (ano is not None and "ano" in df.columns) else df
+    )
+    if COLUNA_REGIAO in ranking.columns and not ranking.empty:
+        top_ras = (
+            ranking.groupby(COLUNA_REGIAO)[coluna_valor]
+            .sum()
+            .sort_values(ascending=False)
+            .head(5)
+        )
+        st.markdown("### RAs mais críticas")
+        colunas_ranking = st.columns(min(5, len(top_ras)))
+        for slot, (ra, total) in zip(colunas_ranking, top_ras.items()):
+            slot.metric(str(ra).title(), _formatar_numero(float(total)))
+
+    st.caption(
+        "Densidade calculada sobre os centróides aproximados das Regiões "
+        "Administrativas (WGS-84); quanto mais intensa a mancha, maior a "
+        "concentração de ocorrências."
+    )
 
 
 def _aba_desaparecidos(base_url: str) -> None:
@@ -772,11 +842,12 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_visao, aba_series, aba_mapa, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_tabelas = st.tabs(
+    aba_visao, aba_series, aba_mapa, aba_mancha, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_tabelas = st.tabs(
         [
             "Visão Geral",
             "Séries Temporais",
             "Mapa de Calor",
+            "Mancha Criminal",
             "Identificação crimes",
             "Desaparecidos",
             "Violência contra idosos",
@@ -794,6 +865,8 @@ def main() -> None:
             _aba_series(base_url)
         with aba_mapa:
             _aba_mapa(base_url)
+        with aba_mancha:
+            _aba_mancha_criminal(base_url)
         with aba_identificacao:
             _aba_idades(base_url)
         with aba_desaparecidos:

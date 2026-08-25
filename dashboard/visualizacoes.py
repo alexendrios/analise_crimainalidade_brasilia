@@ -14,6 +14,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 import plotly.graph_objects as go
 
+from geoespacial.centroides import CENTROIDES_RA
+from util.padronizacao import remover_acentos
+
 CORES_SEXO = {"masculino": "#5dade2", "feminino": "#ec7063"}
 CORES_STATUS = {"localizados": "#58d68d", "ainda desaparecidos": "#e74c3c"}
 
@@ -1197,5 +1200,134 @@ def figura_zonas_quentes(payload: Dict[str, Any]) -> go.Figure:
         template=TEMA_PLOTLY,
         paper_bgcolor=COR_FUNDO_TRANSPARENTE,
         plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+# =========================================================
+# Mancha criminal — mapa de densidade por RA (centróides)
+# =========================================================
+
+ZOOM_DF_PADRAO = 9
+
+
+def _centroide_ra(nome: str) -> Optional[tuple]:
+    """Centróide (lat, lon) da RA pelo nome normalizado; None se desconhecida."""
+    return CENTROIDES_RA.get(remover_acentos(str(nome).strip()).upper())
+
+
+def _escala_tamanhos(valores: pd.Series, minimo: float = 10, maximo: float = 36) -> List[float]:
+    """Escala linear dos valores para o intervalo [minimo, maximo]; constante se sem variação."""
+    minimo_valor, maximo_valor = float(valores.min()), float(valores.max())
+    if maximo_valor <= minimo_valor:
+        return [(minimo + maximo) / 2] * len(valores)
+    proporcion = (valores - minimo_valor) / (maximo_valor - minimo_valor)
+    return (minimo + proporcion * (maximo - minimo)).tolist()
+
+
+def mancha_criminal_para_dataframe(
+    df: pd.DataFrame,
+    coluna_valor: str,
+    ano: Optional[int] = None,
+) -> pd.DataFrame:
+    """
+    Agrega `coluna_valor` por RA (opcionalmente em um ano) e junta os
+    centróides cadastrados, retornando um DataFrame pronto para o mapa.
+
+    RAs sem centróide cadastrado são descartadas; erro se nenhuma restar.
+    """
+    if COLUNA_REGIAO not in df.columns or coluna_valor not in df.columns:
+        raise SemDadosParaGraficoError(
+            f"A tabela exige as colunas '{COLUNA_REGIAO}' e '{coluna_valor}'."
+        )
+
+    dados = df
+    if ano is not None:
+        coluna_ano = coluna_ano_disponivel(df)
+        if coluna_ano is None:
+            raise SemDadosParaGraficoError("Não há coluna de ano para filtrar o recorte.")
+        dados = df[df[coluna_ano] == ano]
+
+    totais = dados.groupby(COLUNA_REGIAO)[coluna_valor].sum()
+    registros = []
+    for ra, total in totais.items():
+        centroide = _centroide_ra(ra)
+        if centroide is None:
+            continue
+        registros.append(
+            {
+                COLUNA_REGIAO: str(ra),
+                "latitude": centroide[0],
+                "longitude": centroide[1],
+                coluna_valor: float(total),
+            }
+        )
+
+    if not registros:
+        raise SemDadosParaGraficoError(
+            "Nenhuma RA com centróide cadastrado para desenhar a mancha criminal."
+        )
+    return pd.DataFrame(registros)
+
+
+def figura_mancha_criminal(
+    df: pd.DataFrame,
+    coluna_valor: str,
+    ano: Optional[int] = None,
+) -> go.Figure:
+    """
+    Mancha criminal do DF sobre mapa base: densidade ponderada pelas
+    ocorrências nos centróides das RAs, com marcadores rotulados destacando
+    onde se concentra mais crime.
+    """
+    pontos = mancha_criminal_para_dataframe(df, coluna_valor, ano=ano)
+    pontos = pontos.sort_values(coluna_valor)
+
+    fig = go.Figure()
+
+    fig.add_trace(
+        go.Densitymap(
+            lat=pontos["latitude"],
+            lon=pontos["longitude"],
+            z=pontos[coluna_valor],
+            radius=32,
+            colorscale="YlOrRd",
+            showscale=False,
+            hoverinfo="skip",
+        )
+    )
+    fig.add_trace(
+        go.Scattermap(
+            lat=pontos["latitude"],
+            lon=pontos["longitude"],
+            mode="markers+text",
+            text=[str(ra).title() for ra in pontos[COLUNA_REGIAO]],
+            textposition="top center",
+            textfont=dict(size=10, color="#fafafa"),
+            marker=dict(
+                size=_escala_tamanhos(pontos[coluna_valor]),
+                color="#e74c3c",
+                opacity=0.55,
+            ),
+            customdata=list(zip(pontos[COLUNA_REGIAO], pontos[coluna_valor])),
+            hovertemplate=(
+                "RA: %{customdata[0]}"
+                f"<br>{rotulo_coluna(coluna_valor)}: %{{customdata[1]:,.0f}}"
+                "<extra></extra>"
+            ),
+            showlegend=False,
+        )
+    )
+
+    centro_lat = float(pontos["latitude"].mean())
+    centro_lon = float(pontos["longitude"].mean())
+    recorte = f" — ano {int(ano)}" if ano is not None else ""
+    fig.update_layout(
+        title=f"Mancha criminal — {rotulo_coluna(coluna_valor)} por RA{recorte}",
+        map=dict(style="carto-positron", center=dict(lat=centro_lat, lon=centro_lon), zoom=ZOOM_DF_PADRAO),
+        margin=dict(l=10, r=10, t=60, b=10),
+        height=560,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
     )
     return fig

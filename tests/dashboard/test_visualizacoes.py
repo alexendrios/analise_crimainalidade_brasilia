@@ -23,6 +23,7 @@ from dashboard.visualizacoes import (
     figura_heatmap_probabilidade,
     figura_heatmap_ra_ano,
     figura_historico_idades,
+    figura_mancha_criminal,
     figura_pares_correlacionados,
     figura_previsao,
     figura_ranking_probabilidade,
@@ -31,6 +32,7 @@ from dashboard.visualizacoes import (
     figura_serie_temporal_categorica,
     figura_zonas_quentes,
     granger_para_dataframe,
+    mancha_criminal_para_dataframe,
     matriz_confusao_para_dataframe,
     modelos_para_dataframe,
     odds_ratios_para_dataframe,
@@ -737,3 +739,86 @@ def test_figura_anomalias_mensal_sem_coluna_mes_usa_mes_num():
 def test_figura_zonas_quentes_sem_colunas_esperadas_levanta_erro():
     with pytest.raises(SemDadosParaGraficoError, match="'celula_id' e de ocorrências"):
         figura_zonas_quentes({"zonas": [{"celula_id": "R001C001", "outro": 1}]})
+
+
+# =========================================================
+# Mancha criminal
+# =========================================================
+
+def _df_mancha():
+    return pd.DataFrame(
+        {
+            "ano": [2023, 2023, 2024],
+            "regiao_administrativa": ["Taguatinga", "Ceilândia", "Taguatinga"],
+            "crimes": [100, 200, 50],
+        }
+    )
+
+
+def test_mancha_criminal_para_dataframe_agrega_e_junta_centroides():
+    pontos = mancha_criminal_para_dataframe(_df_mancha(), "crimes")
+
+    taguatinga = pontos.loc[pontos["regiao_administrativa"] == "Taguatinga"].iloc[0]
+    ceilandia = pontos.loc[pontos["regiao_administrativa"] == "Ceilândia"].iloc[0]
+
+    assert taguatinga["crimes"] == 150  # soma de 2023 + 2024
+    assert taguatinga["latitude"] == pytest.approx(-15.847)
+    assert ceilandia["longitude"] == pytest.approx(-48.108)
+
+
+def test_mancha_criminal_para_dataframe_filtra_ano():
+    pontos = mancha_criminal_para_dataframe(_df_mancha(), "crimes", ano=2024)
+
+    assert list(pontos["regiao_administrativa"]) == ["Taguatinga"]
+    assert list(pontos["crimes"]) == [50]
+
+
+def test_mancha_criminal_para_dataframe_descarta_ra_sem_centroide_e_erro_se_nenhuma_restam():
+    df = pd.DataFrame({"ano": [2020], "regiao_administrativa": ["ATLANTIDA"], "crimes": [10]})
+
+    with pytest.raises(SemDadosParaGraficoError, match="centróide cadastrado"):
+        mancha_criminal_para_dataframe(df, "crimes")
+
+
+def test_mancha_criminal_para_dataframe_exige_colunas_minimas():
+    with pytest.raises(SemDadosParaGraficoError, match="exige as colunas"):
+        mancha_criminal_para_dataframe(pd.DataFrame({"outra": [1]}), "crimes")
+
+
+def test_mancha_criminal_para_dataframe_sem_ano_disponivel_levanta_erro():
+    df = _df_mancha().drop(columns=["ano"])
+
+    with pytest.raises(SemDadosParaGraficoError, match="coluna de ano"):
+        mancha_criminal_para_dataframe(df, "crimes", ano=2024)
+
+
+def test_figura_mancha_criminal_monta_densidade_com_rotulos_das_ras():
+    fig = figura_mancha_criminal(_df_mancha(), "crimes", ano=2023)
+
+    assert isinstance(fig.data[0], go.Densitymap)
+    assert isinstance(fig.data[1], go.Scattermap)
+    # crescente pelo valor: menor RA primeiro
+    assert list(fig.data[1].text) == ["Taguatinga", "Ceilândia"]
+    assert fig.layout.title.text.startswith("Mancha criminal")
+    assert "ano 2023" in fig.layout.title.text
+
+
+def test_figura_mancha_criminal_tamanhos_dos_marcadores_escalam_com_o_valor():
+    df = pd.DataFrame(
+        {
+            "regiao_administrativa": ["Taguatinga", "Ceilândia"],
+            "crimes": [10, 90],
+        }
+    )
+    fig = figura_mancha_criminal(df, "crimes")
+
+    tamanhos = list(fig.data[1].marker.size)
+    assert len(tamanhos) == 2
+    assert tamanhos[0] < tamanhos[1]
+
+
+def test_figura_mancha_criminal_titulo_sem_ano_nao_tem_recorte():
+    fig = figura_mancha_criminal(_df_mancha(), "crimes")
+
+    assert "Mancha criminal" in fig.layout.title.text
+    assert "ano" not in fig.layout.title.text
