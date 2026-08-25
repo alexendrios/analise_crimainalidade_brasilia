@@ -279,28 +279,29 @@ def _aba_visao_geral(base_url: str) -> None:
 
 
 def _mostrar_top5_ras(base_url: str) -> None:
+    st.subheader("Ocorrências por Região Administrativa")
+
     try:
-        tabelas_disponiveis = [
-            t["nome"]
-            for t in listar_tabelas(base_url)
-            if t.get("disponivel_no_banco", False)
-        ]
-    except ApiError:
+        todas = listar_tabelas(base_url)
+    except ApiError as exc:
+        st.warning(f"Não foi possível listar tabelas: {exc}")
         return
 
     tabelas_crime = [
-        t for t in tabelas_disponiveis
-        if t not in TABELAS_EXCLUIDAS_VISAO_GERAL
-        and t != "violencia_idosos_ocorrencias_gold"
-        and "desaparecidos_idade_sexo" not in t
-        and "desaparecidos_localizados" not in t
+        t["nome"]
+        for t in todas
+        if t.get("disponivel_no_banco", False)
+        and t["nome"] not in TABELAS_EXCLUIDAS_VISAO_GERAL
+        and t["nome"] != "violencia_idosos_ocorrencias_gold"
+        and "desaparecidos_idade_sexo" not in t["nome"]
+        and "desaparecidos_localizados" not in t["nome"]
     ]
 
     if not tabelas_crime:
+        st.info("Nenhuma tabela de crimes disponível no momento.")
         return
 
-    st.subheader("Ocorrências por Região Administrativa")
-
+    any_mostrou = False
     for tabela in tabelas_crime:
         try:
             resp = obter_dados(tabela, tamanho_pagina=10000, base_url=base_url)
@@ -326,12 +327,16 @@ def _mostrar_top5_ras(base_url: str) -> None:
         if top5.empty:
             continue
 
+        any_mostrou = True
         st.markdown(f"**{rotulo_tabela(tabela)}**")
         for i, (ra, total) in enumerate(top5.items()):
             st.metric(
                 label=f"{i + 1}º {ra}",
                 value=f"{int(total):,}".replace(",", "."),
             )
+
+    if not any_mostrou:
+        st.info("Nenhuma ocorrência encontrada com coluna de Região Administrativa.")
 
 
 def _aba_resumo_geral(base_url: str) -> None:
