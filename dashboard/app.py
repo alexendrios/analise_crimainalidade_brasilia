@@ -279,31 +279,61 @@ def _aba_visao_geral(base_url: str) -> None:
 
 
 def _mostrar_top5_ras(base_url: str) -> None:
-    try:
-        resp = obter_dados("crimes_letais_gold", tamanho_pagina=10000, base_url=base_url)
-    except ApiError:
+    tabelas_disponiveis = [
+        t["nome"]
+        for t in listar_tabelas(base_url)
+        if t.get("disponivel_no_banco", False)
+    ]
+
+    tabelas_crime = [
+        t for t in tabelas_disponiveis
+        if t not in TABELAS_EXCLUIDAS_VISAO_GERAL
+        and t != "violencia_idosos_ocorrencias_gold"
+        and "desaparecidos_idade_sexo" not in t
+        and "desaparecidos_localizados" not in t
+    ]
+
+    if not tabelas_crime:
         return
 
-    registros = resp.get("registros") or []
-    if not registros:
-        return
+    st.subheader("Ocorrências por Região Administrativa")
 
-    df = pd.DataFrame(registros)
-    colunas_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
-    if COLUNA_REGIAO not in df.columns or not colunas_num:
-        return
+    for tabela in tabelas_crime:
+        try:
+            resp = obter_dados(tabela, tamanho_pagina=10000, base_url=base_url)
+        except ApiError:
+            continue
 
-    por_ra = df.groupby(COLUNA_REGIAO)[colunas_num].sum().sum(axis=1)
-    top5 = por_ra.sort_values(ascending=False).head(5)
-    if top5.empty:
-        return
+        registros = resp.get("registros") or []
+        if not registros:
+            continue
 
-    st.subheader("Top 5 RAs com mais ocorrências de crimes")
-    for i, (ra, total) in enumerate(top5.items()):
-        st.metric(label=f"{i + 1}º {ra}", value=f"{int(total):,}".replace(",", "."))
+        df = pd.DataFrame(registros)
+        colunas_num = [
+            c for c in df.columns
+            if pd.api.types.is_numeric_dtype(df[c])
+            and c not in ("ano", "mes", "mes_num")
+        ]
+
+        if COLUNA_REGIAO not in df.columns or not colunas_num:
+            continue
+
+        por_ra = df.groupby(COLUNA_REGIAO)[colunas_num].sum().sum(axis=1)
+        top5 = por_ra.sort_values(ascending=False).head(5)
+        if top5.empty:
+            continue
+
+        st.markdown(f"**{rotulo_tabela(tabela)}**")
+        for i, (ra, total) in enumerate(top5.items()):
+            st.metric(
+                label=f"{i + 1}º {ra}",
+                value=f"{int(total):,}".replace(",", "."),
+            )
 
 
 def _aba_resumo_geral(base_url: str) -> None:
+    _mostrar_top5_ras(base_url)
+
     st.subheader("Resumo Geral (IA)")
     st.caption(
         "Síntese executiva gerada por modelo local (Ollama) a partir dos "
@@ -332,7 +362,6 @@ def _aba_resumo_geral(base_url: str) -> None:
             return
 
     st.markdown(resposta)
-    _mostrar_top5_ras(base_url)
     st.caption(
         "Conteúdo gerado automaticamente por IA local; confira os números "
         "nas demais abas antes de apoiar decisões."

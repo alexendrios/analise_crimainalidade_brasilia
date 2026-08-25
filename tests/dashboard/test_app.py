@@ -343,7 +343,8 @@ def test_app_aba_resumo_geral_renderiza_controles():
 
     assert not at.exception
     aba = at.tabs[1]
-    assert aba.subheader[0].value == "Resumo Geral (IA)"
+    assert aba.subheader[0].value == "Ocorrências por Região Administrativa"
+    assert any("1º" in m.label for m in aba.metric)
     assert aba.text_input[0].label == "URL do Ollama"
     assert aba.text_input[0].value == "http://localhost:11434"
     assert "modelo-local" in aba.selectbox[0].options
@@ -369,8 +370,7 @@ def test_app_aba_resumo_geral_gera_resumo_com_sucesso():
     aba = at.tabs[1]
     assert not at.exception
     assert any("# Panorama" in md.value for md in aba.markdown)
-    # top 5 RAs é exibido quando o botão é clicado
-    assert any("Top 5 RAs" in sh.value for sh in aba.subheader)
+    assert any("1º" in m.label for m in aba.metric)
 
 
 def test_app_aba_resumo_geral_falha_exibe_error():
