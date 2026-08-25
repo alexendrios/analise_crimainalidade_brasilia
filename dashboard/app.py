@@ -938,10 +938,9 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_visao, aba_resumo, aba_series, aba_mapa, aba_mancha, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_tabelas = st.tabs(
+    aba_visao, aba_series, aba_mapa, aba_mancha, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_resumo, aba_tabelas = st.tabs(
         [
             "Visão Geral",
-            "Resumo Geral",
             "Séries Temporais",
             "Mapa de Calor",
             "Mancha Criminal",
@@ -951,6 +950,7 @@ def main() -> None:
             "Previsões",
             "Classificação",
             "Análises",
+            "Resumo Geral",
             "Tabelas",
         ]
     )
@@ -958,8 +958,6 @@ def main() -> None:
     try:
         with aba_visao:
             _aba_visao_geral(base_url)
-        with aba_resumo:
-            _aba_resumo_geral(base_url)
         with aba_series:
             _aba_series(base_url)
         with aba_mapa:
@@ -978,6 +976,8 @@ def main() -> None:
             _aba_classificacao(base_url)
         with aba_analises:
             _aba_analises(base_url)
+        with aba_resumo:
+            _aba_resumo_geral(base_url)
         with aba_tabelas:
             _aba_tabelas(base_url)
     except ApiError as exc:

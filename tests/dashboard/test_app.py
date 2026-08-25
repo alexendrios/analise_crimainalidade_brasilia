@@ -342,7 +342,7 @@ def test_app_aba_resumo_geral_renderiza_controles():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[1]
+    aba = at.tabs[14]
     assert aba.subheader[0].value == "Resumo Geral (IA)"
     assert aba.text_input[0].label == "URL do Ollama"
     assert aba.text_input[0].value == "http://localhost:11434"
@@ -364,9 +364,9 @@ def test_app_aba_resumo_geral_gera_resumo_com_sucesso():
     ]
     with _entrar(pads):
         at = _rodar()
-        at.tabs[1].button[0].click().run()
+        at.tabs[14].button[0].click().run()
 
-    aba = at.tabs[1]
+    aba = at.tabs[14]
     assert not at.exception
     assert any("# Panorama" in md.value for md in aba.markdown)
 
@@ -386,10 +386,10 @@ def test_app_aba_resumo_geral_falha_exibe_error():
     ]
     with _entrar(pads):
         at = _rodar()
-        at.tabs[1].button[0].click().run()
+        at.tabs[14].button[0].click().run()
 
     assert not at.exception
-    assert any("Ollama fora do ar" in e.value for e in at.tabs[1].error)
+    assert any("Ollama fora do ar" in e.value for e in at.tabs[14].error)
 
 
 def test_app_series_exclui_tabelas_nao_serie_temporal():
@@ -408,7 +408,7 @@ def test_app_series_exclui_tabelas_nao_serie_temporal():
         at = _rodar()
 
     assert not at.exception
-    opcoes = at.tabs[2].selectbox[0].options
+    opcoes = at.tabs[1].selectbox[0].options
     assert "Violência contra idosos" not in opcoes
     assert "Violência contra idosos — série mensal" not in opcoes
     assert "Violência contra idosos — por sexo" not in opcoes
@@ -435,7 +435,7 @@ def test_app_mapa_exclui_tabelas_sem_regiao():
         at = _rodar()
 
     assert not at.exception
-    opcoes = at.tabs[3].selectbox[0].options
+    opcoes = at.tabs[2].selectbox[0].options
     assert "Violência contra idosos" not in opcoes
     assert "Violência contra idosos — série mensal" not in opcoes
     assert "Violência contra idosos — por sexo" not in opcoes
@@ -451,7 +451,7 @@ def test_app_aba_mancha_criminal_renderiza_mapa_e_ranking():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[4]
+    aba = at.tabs[3]
     assert len(aba.get("plotly_chart")) == 1
     # recorte padrão é o ano mais recente (2021): RA mais crítica é Ceilândia
     metricas = {m.label: m.value for m in aba.metric}
@@ -474,7 +474,7 @@ def test_app_aba_mancha_criminal_avisa_quando_nenhuma_ra_tem_centroide():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[4]
+    aba = at.tabs[3]
     assert any("centróide cadastrado" in w.value for w in aba.warning)
     assert len(aba.get("plotly_chart")) == 0
 
@@ -755,7 +755,7 @@ def test_app_aba_idades_renderiza_histograma_e_resumo():
         at = _rodar()
 
     assert not at.exception
-    aba_idades = at.tabs[5]
+    aba_idades = at.tabs[4]
     assert len(aba_idades.get("plotly_chart")) >= 1
     assert any("Idade da vítima" in str(df.value.values) for df in aba_idades.dataframe)
 
@@ -771,7 +771,7 @@ def test_app_aba_idades_sem_colunas_de_idade_avisa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("não possui as colunas de idade" in i.value for i in at.tabs[5].info)
+    assert any("não possui as colunas de idade" in i.value for i in at.tabs[4].info)
 
 
 def test_app_aba_idades_sem_idades_validas_avisa_usuario():
@@ -790,8 +790,8 @@ def test_app_aba_idades_sem_idades_validas_avisa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("idades válidas" in w.value for w in at.tabs[5].warning)
-    assert any("Registros válidos" in str(df.value.columns) for df in at.tabs[5].dataframe)
+    assert any("idades válidas" in w.value for w in at.tabs[4].warning)
+    assert any("Registros válidos" in str(df.value.columns) for df in at.tabs[4].dataframe)
 
 
 def test_app_identificacao_crimes_nao_oferece_seletor_de_tabela():
@@ -802,7 +802,7 @@ def test_app_identificacao_crimes_nao_oferece_seletor_de_tabela():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[5]
+    aba = at.tabs[4]
     assert not any("Tabela gold" == s.label for s in aba.selectbox)
     assert len(aba.get("plotly_chart")) >= 1
 
@@ -814,7 +814,7 @@ def test_app_aba_desaparecidos_renderiza_quatro_graficos():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[6]
+    aba = at.tabs[5]
     assert len(aba.get("plotly_chart")) == 4
     assert not aba.warning
 
@@ -836,7 +836,7 @@ def test_app_aba_desaparecidos_sem_tabelas_informa_usuario():
     assert not at.exception
     assert any(
         "Nenhuma tabela de desaparecidos foi materializada" in i.value
-        for i in at.tabs[6].info
+        for i in at.tabs[5].info
     )
 
 
@@ -847,7 +847,7 @@ def test_app_aba_violencia_idosos_renderiza_quatro_graficos():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[7]
+    aba = at.tabs[6]
     assert len(aba.get("plotly_chart")) == 4
     assert not aba.warning
 
@@ -869,7 +869,7 @@ def test_app_aba_violencia_idosos_sem_tabelas_informa_usuario():
     assert not at.exception
     assert any(
         "Nenhuma tabela de violência contra idosos foi materializada" in i.value
-        for i in at.tabs[7].info
+        for i in at.tabs[6].info
     )
 
 
@@ -979,7 +979,7 @@ def test_app_aba_classificacao_renderiza_graficos_metricas_e_tabela():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[9]
+    aba = at.tabs[8]
     valores = [m.value for m in aba.metric]
     assert "artefato" in valores  # fonte do modelo
     assert any("10.66" == str(v) for v in valores)  # limiar da mediana
@@ -1005,7 +1005,7 @@ def test_app_aba_classificacao_sem_classificacoes_informa_usuario():
         at = _rodar()
 
     assert not at.exception
-    assert any("não contém classificações" in i.value for i in at.tabs[9].info)
+    assert any("não contém classificações" in i.value for i in at.tabs[8].info)
 
 
 def test_app_aba_classificacao_falha_exibe_error():
@@ -1018,7 +1018,7 @@ def test_app_aba_classificacao_falha_exibe_error():
         at = _rodar()
 
     assert not at.exception
-    assert any("classificação indisponível" in e.value for e in at.tabs[9].error)
+    assert any("classificação indisponível" in e.value for e in at.tabs[8].error)
 
 
 def test_app_aba_classificacao_sem_metricas_holdout_renderiza():
@@ -1040,7 +1040,7 @@ def test_app_aba_analises_renderiza_quatro_secoes():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[10]
+    aba = at.tabs[9]
     assert len(aba.get("plotly_chart")) == 6  # heatmap + pares + granger + 2 anomalias + zonas
     valores = [m.value for m in aba.metric]
     assert "2016–2024" in valores  # período consolidado das correlações
@@ -1051,7 +1051,7 @@ def test_app_aba_analises_exibe_insights_das_correlacoes():
     with _entrar(_pads()):
         at = _rodar()
 
-    aba = at.tabs[10]
+    aba = at.tabs[9]
     assert any(
         "correlação positiva forte" in md.value
         for md in aba.markdown
@@ -1069,7 +1069,7 @@ def test_app_aba_analises_correlacoes_falha_exibe_error():
 
     assert not at.exception
     assert any(
-        "correlações indisponíveis" in e.value for e in at.tabs[10].error
+        "correlações indisponíveis" in e.value for e in at.tabs[9].error
     )
 
 
@@ -1081,7 +1081,7 @@ def test_app_aba_analises_granger_vazio_avisa_e_informa():
         at = _rodar()
 
     assert not at.exception
-    aba = at.tabs[10]
+    aba = at.tabs[9]
     assert any("Nenhum par retornado" in i.value for i in aba.info)
     assert any("não contém pares avaliáveis" in w.value for w in aba.warning)
 
@@ -1095,7 +1095,7 @@ def test_app_aba_analises_anomalias_sem_serie_mensal_avisa_usuario():
 
     assert not at.exception
     assert any(
-        "Não há anomalias na série mensal." in w.value for w in at.tabs[10].warning
+        "Não há anomalias na série mensal." in w.value for w in at.tabs[9].warning
     )
 
 
@@ -1110,5 +1110,5 @@ def test_app_aba_analises_zonas_quentes_falha_exibe_error():
 
     assert not at.exception
     assert any(
-        "zonas quentes indisponíveis" in e.value for e in at.tabs[10].error
+        "zonas quentes indisponíveis" in e.value for e in at.tabs[9].error
     )
