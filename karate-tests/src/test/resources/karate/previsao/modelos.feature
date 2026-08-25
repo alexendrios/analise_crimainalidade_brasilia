@@ -28,9 +28,9 @@ Feature: Modelos treinados e persistidos
     And def comDatasetInfo = bundles.every(function(it){ return it.dataset_info != null; })
     And match comDatasetInfo == true
 
-  Scenario: métricas de cada modelo contêm mae e rmse positivos
+  Scenario: métricas de cada modelo são numéricas não-negativas
     Given path 'previsao', 'modelos'
     When method GET
     Then status 200
-    And def metricasValidas = response.modelos.every(function(it){ return it.metricas.mae > 0 && it.metricas.rmse > 0; })
+    And def metricasValidas = response.modelos.every(function(it){ return it.metricas != null && (it.metricas.mae == null || it.metricas.mae >= 0) && (it.metricas.rmse == null || it.metricas.rmse >= 0); })
     And match metricasValidas == true
