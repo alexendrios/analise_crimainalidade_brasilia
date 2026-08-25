@@ -57,7 +57,7 @@ REPORT_TOOL = "pytest-html"
 
 COVERAGE_TOOL = "pytest-cov"
 
-COVERAGE_MINIMUM = 85.0
+COVERAGE_MINIMUM = 95.0
 
 
 # ============================================================
