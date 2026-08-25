@@ -167,6 +167,61 @@ CLASSIFICACAO = {
     ],
 }
 
+CORRELACOES = {
+    "metodo": "pearson",
+    "periodo": [2016, 2024],
+    "indicadores": ["roubo_pedestre", "homicidio"],
+    "matriz_correlacao": {
+        "roubo_pedestre": {"roubo_pedestre": 1.0, "homicidio": 0.8},
+        "homicidio": {"roubo_pedestre": 0.8, "homicidio": 1.0},
+    },
+    "serie_historica": [
+        {"ano": 2016, "roubo_pedestre": 100, "homicidio": 10},
+        {"ano": 2024, "roubo_pedestre": 200, "homicidio": 20},
+    ],
+    "pares_destaque": [
+        {"indicador_a": "roubo_pedestre", "indicador_b": "homicidio", "correlacao": 0.8},
+    ],
+    "insights": [
+        "'Roubo a pedestre' e 'Homicídio' têm correlação positiva forte (+0.80)."
+    ],
+}
+
+GRANGER = {
+    "max_lag": 1,
+    "alpha": 0.05,
+    "total_pares": 1,
+    "total_significantes": 1,
+    "pares": [
+        {"origem": "roubo_pedestre", "destino": "homicidio",
+         "melhor_lag": 1, "p_valor": 0.01, "significante": True},
+    ],
+}
+
+ANOMALIAS = {
+    "total_painel": 1,
+    "total_mensal": 1,
+    "painel": [
+        {"regiao_administrativa": "Ceilândia", "ano": 2021,
+         "ocorrencia_roubo_pedestre": 900, "lag_1": 500.0,
+         "diff_1": 400.0, "media_movel_3": 480.0},
+    ],
+    "mensal": [
+        {"ano": 2017, "mes": "DEZ", "mes_num": 12, "fato": 120,
+         "registro": 130, "lag_1": 40.0, "diff_1": 80.0, "media_movel_3": 45.0},
+    ],
+}
+
+ZONAS_QUENTES = {
+    "ano_referencia": 2024,
+    "tamanho_celula_km": 1.5,
+    "celulas_com_ocorrencias": 2,
+    "zonas": [
+        {"celula_id": "R010C005", "ocorrencia_roubo_pedestre": 120},
+        {"celula_id": "R002C001", "ocorrencia_roubo_pedestre": 60},
+    ],
+}
+
 
 def _pads():
     return [
@@ -177,6 +232,10 @@ def _pads():
         patch("dashboard.api_client.obter_classificacao", return_value=CLASSIFICACAO),
         patch("dashboard.api_client.listar_modelos", return_value=[]),
         patch("dashboard.api_client.health", return_value={"status": "ok", "database": "ok"}),
+        patch("dashboard.api_client.obter_correlacoes", return_value=CORRELACOES),
+        patch("dashboard.api_client.obter_granger", return_value=GRANGER),
+        patch("dashboard.api_client.obter_anomalias", return_value=ANOMALIAS),
+        patch("dashboard.api_client.obter_zonas_quentes", return_value=ZONAS_QUENTES),
     ]
 
 
@@ -839,3 +898,82 @@ def test_app_aba_classificacao_sem_metricas_holdout_renderiza():
         at = _rodar()
 
     assert not at.exception
+
+
+def test_app_aba_analises_renderiza_quatro_secoes():
+    with _entrar(_pads()):
+        at = _rodar()
+
+    assert not at.exception
+    aba = at.tabs[8]
+    assert len(aba.get("plotly_chart")) == 6  # heatmap + pares + granger + 2 anomalias + zonas
+    valores = [m.value for m in aba.metric]
+    assert "2016–2024" in valores  # período consolidado das correlações
+    assert any("Ceilândia" in str(df.value.values) for df in aba.dataframe)
+
+
+def test_app_aba_analises_exibe_insights_das_correlacoes():
+    with _entrar(_pads()):
+        at = _rodar()
+
+    aba = at.tabs[8]
+    assert any(
+        "correlação positiva forte" in md.value
+        for md in aba.markdown
+    )
+
+
+def test_app_aba_analises_correlacoes_falha_exibe_error():
+    pads = list(_pads())
+    pads[7] = patch(
+        "dashboard.api_client.obter_correlacoes",
+        side_effect=ApiError("correlações indisponíveis"),
+    )
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any(
+        "correlações indisponíveis" in e.value for e in at.tabs[8].error
+    )
+
+
+def test_app_aba_analises_granger_vazio_avisa_e_informa():
+    granger_vazio = dict(GRANGER, pares=[], total_significantes=0)
+    pads = list(_pads())
+    pads[8] = patch("dashboard.api_client.obter_granger", return_value=granger_vazio)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    aba = at.tabs[8]
+    assert any("Nenhum par retornado" in i.value for i in aba.info)
+    assert any("não contém pares avaliáveis" in w.value for w in aba.warning)
+
+
+def test_app_aba_analises_anomalias_sem_serie_mensal_avisa_usuario():
+    sem_mensal = dict(ANOMALIAS, mensal=[], total_mensal=0)
+    pads = list(_pads())
+    pads[9] = patch("dashboard.api_client.obter_anomalias", return_value=sem_mensal)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any(
+        "Não há anomalias na série mensal." in w.value for w in at.tabs[8].warning
+    )
+
+
+def test_app_aba_analises_zonas_quentes_falha_exibe_error():
+    pads = list(_pads())
+    pads[10] = patch(
+        "dashboard.api_client.obter_zonas_quentes",
+        side_effect=ApiError("zonas quentes indisponíveis"),
+    )
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    assert any(
+        "zonas quentes indisponíveis" in e.value for e in at.tabs[8].error
+    )

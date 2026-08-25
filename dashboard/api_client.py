@@ -116,3 +116,54 @@ def obter_classificacao(
     (Regressão Logística, endpoint /classificacao/criminalidade-letal)."""
     params: Dict[str, Any] = {"usar_cache": str(usar_cache).lower()}
     return _get(base_url, "/classificacao/criminalidade-letal", params=params)
+
+
+def obter_correlacoes(
+    metodo: str = "pearson",
+    top_n: int = 5,
+    base_url: str = DEFAULT_BASE_URL,
+) -> Dict[str, Any]:
+    """Retorna a matriz de correlação multivariada entre indicadores gold
+    (endpoint /analise/correlacoes)."""
+    params: Dict[str, Any] = {"metodo": metodo, "top_n": top_n}
+    return _get(base_url, "/analise/correlacoes", params=params)
+
+
+def obter_granger(
+    max_lag: int = 1,
+    apenas_significantes: bool = True,
+    limite: int = 50,
+    base_url: str = DEFAULT_BASE_URL,
+) -> Dict[str, Any]:
+    """Retorna a causalidade de Granger pairwise entre indicadores anuais
+    (endpoint /analise/granger)."""
+    params: Dict[str, Any] = {
+        "max_lag": max_lag,
+        "apenas_significantes": str(apenas_significantes).lower(),
+        "limite": limite,
+    }
+    return _get(base_url, "/analise/granger", params=params)
+
+
+def obter_anomalias(
+    limite: int = 50,
+    base_url: str = DEFAULT_BASE_URL,
+) -> Dict[str, Any]:
+    """Retorna as anomalias do Isolation Forest no painel RA x ano e na
+    série mensal de violência contra idosos (endpoint /analise/anomalias)."""
+    params: Dict[str, Any] = {"limite": limite}
+    return _get(base_url, "/analise/anomalias", params=params)
+
+
+def obter_zonas_quentes(
+    tamanho_celula_km: float = 1.5,
+    top_n: int = 20,
+    base_url: str = DEFAULT_BASE_URL,
+) -> Dict[str, Any]:
+    """Retorna as células da malha com mais ocorrências patrimoniais no
+    último ano (endpoint /analise/zonas-quentes)."""
+    params: Dict[str, Any] = {
+        "tamanho_celula_km": tamanho_celula_km,
+        "top_n": top_n,
+    }
+    return _get(base_url, "/analise/zonas-quentes", params=params)

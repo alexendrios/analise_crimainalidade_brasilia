@@ -7,8 +7,9 @@ figuras do Plotly. Não dependem do Streamlit, o que permite testes
 unitários diretos sem servidor.
 """
 
-from typing import Any, Dict, List, Optional
+import math
 import re
+from typing import Any, Dict, List, Optional
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -44,6 +45,27 @@ ROTULOS_COLUNAS = {
     "taxa_lesao_morte": "Taxa de lesão seguida de morte",
     "log_populacao": "Log da população",
     "ano_num": "Ano (numérico)",
+    # indicadores consolidados das análises executivas (/analise)
+    "violencia_mulher": "Violência contra a mulher",
+    "feminicidio": "Feminicídio",
+    "roubo_pedestre": "Roubo a pedestre",
+    "roubo_comercio": "Roubo a comércio",
+    "roubo_transporte": "Roubo no transporte coletivo",
+    "roubo_veiculo": "Roubo de veículo",
+    "furto_veiculo": "Furto de veículo",
+    "homicidio": "Homicídio",
+    "latrocinio": "Latrocínio",
+    "lesao_morte": "Lesão seguida de morte",
+    "racismo": "Racismo",
+    "injuria_racial": "Injúria racial",
+    # colunas das análises executivas
+    "origem": "Origem",
+    "destino": "Destino",
+    "melhor_lag": "Melhor defasagem (anos)",
+    "p_valor": "p-valor",
+    "lag_1": "Valor do período anterior",
+    "diff_1": "Variação versus período anterior",
+    "media_movel_3": "Média móvel (3 períodos)",
 }
 
 
@@ -870,6 +892,308 @@ def figura_desaparecidos_por_ra(df: pd.DataFrame) -> go.Figure:
         barmode="group",
         legend_title="Ano",
         height=max(420, 26 * len(ranking)),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+# =========================================================
+# Análises executivas — correlações (/analise/correlacoes)
+# =========================================================
+
+def correlacoes_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
+    """Converte os pares destaque da resposta de correlações em DataFrame."""
+    return pd.DataFrame(payload.get("pares_destaque") or [])
+
+
+def figura_heatmap_correlacoes(payload: Dict[str, Any]) -> go.Figure:
+    """Mapa de calor da matriz de correlação entre os indicadores gold."""
+    matriz = payload.get("matriz_correlacao") or {}
+    if not matriz:
+        raise SemDadosParaGraficoError(
+            "A resposta de correlações não contém a matriz de correlação."
+        )
+
+    indicadores = list(payload.get("indicadores") or matriz.keys())
+    tabela = (
+        pd.DataFrame(matriz)
+        .reindex(index=indicadores, columns=indicadores)
+        .astype(float)
+    )
+
+    rotulos = [rotulo_coluna(indicador) for indicador in indicadores]
+    fig = go.Figure(
+        go.Heatmap(
+            z=tabela.values,
+            x=rotulos,
+            y=rotulos,
+            colorscale="RdBu_r",
+            zmin=-1,
+            zmax=1,
+            hovertemplate="%{y} × %{x}<br>Correlação: %{z:.3f}<extra></extra>",
+        )
+    )
+
+    periodo = payload.get("periodo") or []
+    recorte = f" ({periodo[0]}–{periodo[1]})" if len(periodo) == 2 else ""
+    fig.update_layout(
+        title=f"Correlação entre indicadores — {payload.get('metodo', 'pearson')}{recorte}",
+        height=max(420, 34 * len(indicadores)),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+        hoverlabel=dict(bgcolor=FUNDO_HOVER, font_color=TEXTO_HOVER),
+    )
+    return fig
+
+
+def figura_pares_correlacionados(payload: Dict[str, Any], top_n: Optional[int] = None) -> go.Figure:
+    """
+    Barras horizontais divergentes dos pares mais correlacionados
+    (vermelho = positiva, azul = negativa).
+    """
+    df = correlacoes_para_dataframe(payload)
+    if df.empty:
+        raise SemDadosParaGraficoError(
+            "A resposta de correlações não contém pares destaque."
+        )
+    if top_n is not None:
+        df = df.head(top_n)
+    df = df.sort_values("correlacao", ascending=True)
+
+    rotulos = [
+        f"{rotulo_coluna(a)} × {rotulo_coluna(b)}"
+        for a, b in zip(df["indicador_a"], df["indicador_b"])
+    ]
+    cores = ["#e74c3c" if valor > 0 else "#5dade2" for valor in df["correlacao"]]
+
+    fig = go.Figure(
+        go.Bar(
+            x=df["correlacao"],
+            y=rotulos,
+            orientation="h",
+            marker_color=cores,
+            hovertemplate="%{y}<br>Correlação: %{x:.3f}<extra></extra>",
+        )
+    )
+    fig.add_vline(x=0, line_color="#95a5a6")
+    fig.update_layout(
+        title="Pares de indicadores mais correlacionados",
+        xaxis_title="Correlação",
+        xaxis_range=[-1, 1],
+        height=max(380, 40 * len(rotulos)),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+# =========================================================
+# Análises executivas — causalidade de Granger (/analise/granger)
+# =========================================================
+
+def granger_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
+    """Converte os pares da resposta de Granger em DataFrame."""
+    return pd.DataFrame(payload.get("pares") or [])
+
+
+def figura_granger(payload: Dict[str, Any]) -> go.Figure:
+    """
+    Barras horizontais da força da relação de Granger (-log10 do p-valor)
+    por par origem → destino, com a linha do limiar de significância.
+    """
+    df = granger_para_dataframe(payload)
+    dados = df.dropna(subset=["p_valor"]).copy() if not df.empty else pd.DataFrame()
+    if dados.empty:
+        raise SemDadosParaGraficoError("A resposta de Granger não contém pares avaliáveis.")
+
+    alpha = float(payload.get("alpha") or 0.05)
+    dados["forca"] = dados["p_valor"].map(lambda p: -math.log10(max(float(p), 1e-12)))
+    dados = dados.sort_values("forca", ascending=True)
+
+    rotulos = [
+        f"{rotulo_coluna(origem)} → {rotulo_coluna(destino)}"
+        for origem, destino in zip(dados["origem"], dados["destino"])
+    ]
+
+    fig = go.Figure(
+        go.Bar(
+            x=dados["forca"],
+            y=rotulos,
+            orientation="h",
+            marker_color="#e74c3c",
+            customdata=list(zip(dados["p_valor"], dados["melhor_lag"])),
+            hovertemplate=(
+                "%{y}<br>p-valor: %{customdata[0]:.4f}"
+                "<br>Defasagem: %{customdata[1]} ano(s)"
+                "<extra></extra>"
+            ),
+        )
+    )
+    fig.add_vline(
+        x=-math.log10(alpha),
+        line_dash="dot",
+        line_color="#95a5a6",
+        annotation_text=f"limiar (α = {alpha:g})",
+    )
+    fig.update_layout(
+        title=f"Força da causalidade de Granger (max_lag = {payload.get('max_lag', 1)})",
+        xaxis_title="-log10(p-valor)",
+        yaxis_title="Par (origem → destino)",
+        height=max(380, 40 * len(rotulos)),
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+# =========================================================
+# Análises executivas — anomalias Isolation Forest (/analise/anomalias)
+# =========================================================
+
+def anomalias_para_dataframes(payload: Dict[str, Any]) -> tuple:
+    """Converte as listas de anomalias (painel e mensal) em DataFrames."""
+    return (
+        pd.DataFrame(payload.get("painel") or []),
+        pd.DataFrame(payload.get("mensal") or []),
+    )
+
+
+def figura_anomalias_painel(payload: Dict[str, Any]) -> go.Figure:
+    """Dispersão das anomalias do painel RA × ano (roubo a pedestre)."""
+    df_painel, _ = anomalias_para_dataframes(payload)
+    if df_painel.empty:
+        raise SemDadosParaGraficoError("Não há anomalias no painel RA × ano.")
+
+    coluna_valor = next(
+        (c for c in df_painel.columns if c.startswith("ocorrencia")),
+        None,
+    )
+    if coluna_valor is None or "ano" not in df_painel.columns:
+        raise SemDadosParaGraficoError(
+            "As anomalias do painel não possuem as colunas 'ano' e de ocorrências."
+        )
+
+    tem_regiao = COLUNA_REGIAO in df_painel.columns
+    grupos = (
+        df_painel.groupby(COLUNA_REGIAO)
+        if tem_regiao
+        else [(None, df_painel)]
+    )
+    fig = go.Figure()
+    for ra, grupo in grupos:
+        nome_ra = str(ra) if tem_regiao else "Total"
+        contexto = list(grupo[COLUNA_REGIAO].astype(str)) if tem_regiao else ["—"] * len(grupo)
+        fig.add_trace(
+            go.Scatter(
+                x=grupo["ano"],
+                y=grupo[coluna_valor],
+                mode="markers",
+                name=nome_ra,
+                customdata=contexto,
+                hovertemplate=(
+                    "RA: %{customdata}<br>Ano: %{x}"
+                    f"<br>{rotulo_coluna(coluna_valor)}: %{{y}}<extra></extra>"
+                ),
+                marker=dict(size=12, color="#e74c3c", symbol="diamond"),
+            )
+        )
+
+    fig.update_layout(
+        title="Anomalias detectadas no painel RA × ano (roubo a pedestre)",
+        xaxis_title="Ano",
+        yaxis_title=rotulo_coluna(coluna_valor),
+        legend_title="Região Administrativa",
+        height=480,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+def figura_anomalias_mensal(payload: Dict[str, Any]) -> go.Figure:
+    """Barras dos meses anômalos na série mensal de violência contra idosos."""
+    _, df_mensal = anomalias_para_dataframes(payload)
+    if df_mensal.empty:
+        raise SemDadosParaGraficoError("Não há anomalias na série mensal.")
+    if "fato" not in df_mensal.columns or "ano" not in df_mensal.columns:
+        raise SemDadosParaGraficoError(
+            "As anomalias mensais não possuem as colunas 'ano' e 'fato'."
+        )
+
+    ordenado = df_mensal.sort_values(["ano", "mes_num"]).copy()
+    if "mes" in ordenado.columns:
+        rotulos = (
+            ordenado["mes"].astype(str).str.title()
+            + "/"
+            + ordenado["ano"].astype(int).astype(str)
+        )
+    else:
+        rotulos = (
+            ordenado["mes_num"].astype(int).astype(str)
+            + "/"
+            + ordenado["ano"].astype(int).astype(str)
+        )
+
+    fig = go.Figure(
+        go.Bar(x=rotulos.tolist(), y=ordenado["fato"], marker_color="#e74c3c")
+    )
+    fig.update_layout(
+        title="Meses anômalos — violência contra idosos",
+        xaxis_title="Mês",
+        yaxis_title="Fatos registrados",
+        height=480,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig
+
+
+# =========================================================
+# Análises executivas — zonas quentes (/analise/zonas-quentes)
+# =========================================================
+
+def zonas_quentes_para_dataframe(payload: Dict[str, Any]) -> pd.DataFrame:
+    """Converte as células da resposta de zonas quentes em DataFrame."""
+    return pd.DataFrame(payload.get("zonas") or [])
+
+
+def figura_zonas_quentes(payload: Dict[str, Any]) -> go.Figure:
+    """Ranking das células da malha com mais ocorrências patrimoniais."""
+    df = zonas_quentes_para_dataframe(payload)
+    if df.empty:
+        raise SemDadosParaGraficoError("A resposta de zonas quentes não contém células.")
+
+    coluna_valor = next((c for c in df.columns if c.startswith("ocorrencia")), None)
+    if coluna_valor is None or "celula_id" not in df.columns:
+        raise SemDadosParaGraficoError(
+            "As zonas quentes não possuem as colunas 'celula_id' e de ocorrências."
+        )
+
+    dados = df.sort_values(coluna_valor, ascending=True)
+    ano = payload.get("ano_referencia")
+
+    fig = go.Figure(
+        go.Bar(
+            y=dados["celula_id"].astype(str),
+            x=dados[coluna_valor],
+            orientation="h",
+            marker=dict(color=dados[coluna_valor], colorscale="YlOrRd", showscale=False),
+            hovertemplate="Célula: %{y}<br>Ocorrências: %{x}<extra></extra>",
+        )
+    )
+    recorte = f" — ano {int(ano)}" if ano is not None else ""
+    fig.update_layout(
+        title=f"Zonas quentes — células com mais ocorrências patrimoniais{recorte}",
+        xaxis_title="Ocorrências (roubo a pedestre)",
+        yaxis_title="Célula da malha",
+        height=max(420, 26 * len(dados)),
         template=TEMA_PLOTLY,
         paper_bgcolor=COR_FUNDO_TRANSPARENTE,
         plot_bgcolor=COR_FUNDO_TRANSPARENTE,

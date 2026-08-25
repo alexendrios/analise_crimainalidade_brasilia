@@ -9,10 +9,14 @@ from dashboard.api_client import (
     health,
     listar_modelos,
     listar_tabelas,
+    obter_anomalias,
     obter_classificacao,
+    obter_correlacoes,
     obter_dados,
+    obter_granger,
     obter_previsao,
     obter_resumo,
+    obter_zonas_quentes,
 )
 
 
@@ -123,6 +127,57 @@ def test_obter_classificacao_cache_padrao():
         obter_classificacao()
 
     assert mock_get.call_args[1]["params"] == {"usar_cache": "true"}
+
+
+def test_obter_correlacoes_envia_params_e_caminho():
+    with patch(
+        "dashboard.api_client.requests.get",
+        return_value=_resposta_ok({"matriz_correlacao": {}}),
+    ) as mock_get:
+        obter_correlacoes(metodo="spearman", top_n=7)
+
+    assert mock_get.call_args[1]["params"] == {"metodo": "spearman", "top_n": 7}
+    assert "/analise/correlacoes" in mock_get.call_args[0][0]
+
+
+def test_obter_granger_envia_params_e_caminho():
+    with patch(
+        "dashboard.api_client.requests.get",
+        return_value=_resposta_ok({"pares": []}),
+    ) as mock_get:
+        obter_granger(max_lag=2, apenas_significantes=False, limite=25)
+
+    assert mock_get.call_args[1]["params"] == {
+        "max_lag": 2,
+        "apenas_significantes": "false",
+        "limite": 25,
+    }
+    assert "/analise/granger" in mock_get.call_args[0][0]
+
+
+def test_obter_anomalias_envia_limite_e_caminho():
+    with patch(
+        "dashboard.api_client.requests.get",
+        return_value=_resposta_ok({"painel": []}),
+    ) as mock_get:
+        obter_anomalias(limite=30)
+
+    assert mock_get.call_args[1]["params"] == {"limite": 30}
+    assert "/analise/anomalias" in mock_get.call_args[0][0]
+
+
+def test_obter_zonas_quentes_envia_params_e_caminho():
+    with patch(
+        "dashboard.api_client.requests.get",
+        return_value=_resposta_ok({"zonas": []}),
+    ) as mock_get:
+        obter_zonas_quentes(tamanho_celula_km=2.5, top_n=10)
+
+    assert mock_get.call_args[1]["params"] == {
+        "tamanho_celula_km": 2.5,
+        "top_n": 10,
+    }
+    assert "/analise/zonas-quentes" in mock_get.call_args[0][0]
 
 
 def test_erro_de_rede_levanta_api_error():

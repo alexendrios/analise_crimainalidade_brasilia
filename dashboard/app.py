@@ -31,19 +31,28 @@ from dashboard.api_client import (
     health,
     listar_modelos,
     listar_tabelas,
+    obter_anomalias,
     obter_classificacao,
+    obter_correlacoes,
     obter_dados,
+    obter_granger,
     obter_previsao,
     obter_resumo,
+    obter_zonas_quentes,
 )
 from dashboard.visualizacoes import (
     COLUNA_REGIAO,
     COLUNAS_IDADES,
     SemDadosParaGraficoError,
+    anomalias_para_dataframes,
     classificacao_para_dataframe,
     coluna_ano_disponivel,
     colunas_categoricas,
     colunas_numericas,
+    figura_anomalias_mensal,
+    figura_anomalias_painel,
+    figura_granger,
+    figura_heatmap_correlacoes,
     figura_heatmap_probabilidade,
     figura_heatmap_ra_ano,
     figura_historico_idades,
@@ -55,11 +64,14 @@ from dashboard.visualizacoes import (
     figura_desaparecidos_por_idade,
     figura_desaparecidos_por_ra,
     figura_desaparecidos_por_sexo,
+    figura_pares_correlacionados,
     figura_previsao,
     figura_ranking_probabilidade,
     figura_ranking_ra,
     figura_serie_temporal,
     figura_serie_temporal_categorica,
+    figura_zonas_quentes,
+    granger_para_dataframe,
     matriz_confusao_para_dataframe,
     modelos_para_dataframe,
     odds_ratios_para_dataframe,
@@ -67,6 +79,7 @@ from dashboard.visualizacoes import (
     registros_para_dataframe,
     rotulo_coluna,
     rotulo_tabela,
+    zonas_quentes_para_dataframe,
 )
 
 TITULO = "Criminalidade em Brasília/DF — Dashboard Analítico"
@@ -539,6 +552,169 @@ def _aba_classificacao(base_url: str) -> None:
             st.warning(str(exc))
 
 
+def _aba_analises(base_url: str) -> None:
+    st.subheader("Análises Executivas")
+    st.caption(
+        "Correlações multivariadas, causalidade de Granger, anomalias "
+        "(Isolation Forest) e zonas quentes calculadas sobre as tabelas gold."
+    )
+
+    aba_corr, aba_granger, aba_anomalias, aba_zonas = st.tabs(
+        ["Correlações", "Granger", "Anomalias", "Zonas Quentes"]
+    )
+
+    with aba_corr:
+        col1, col2 = st.columns(2)
+        metodo = col1.selectbox(
+            "Método", ["pearson", "spearman"], key="an_corr_metodo"
+        )
+        top_n = col2.slider(
+            "Pares destaque", min_value=3, max_value=15, value=5, key="an_corr_topn"
+        )
+        try:
+            payload = obter_correlacoes(metodo=metodo, top_n=top_n, base_url=base_url)
+        except ApiError as exc:
+            st.error(f"Não foi possível obter as correlações: {exc}")
+            return
+
+        periodo = payload.get("periodo") or []
+        met1, met2 = st.columns(2)
+        met1.metric(
+            "Período consolidado",
+            f"{periodo[0]}–{periodo[1]}" if len(periodo) == 2 else "—",
+        )
+        met2.metric("Indicadores", len(payload.get("indicadores") or []))
+
+        try:
+            st.plotly_chart(figura_heatmap_correlacoes(payload), width="stretch")
+            st.plotly_chart(figura_pares_correlacionados(payload, top_n=top_n), width="stretch")
+        except SemDadosParaGraficoError as exc:
+            st.warning(str(exc))
+
+        insights = payload.get("insights") or []
+        if insights:
+            st.markdown("### Insights")
+            for texto in insights:
+                st.markdown(f"- {texto}")
+
+    with aba_granger:
+        col1, col2 = st.columns(2)
+        max_lag = col1.slider(
+            "Defasagem máxima (anos)", min_value=1, max_value=3, value=1, key="an_gr_lag"
+        )
+        apenas_significantes = col2.checkbox(
+            "Somente pares significantes (p < 0,05)", value=True, key="an_gr_signif"
+        )
+        try:
+            payload = obter_granger(
+                max_lag=max_lag,
+                apenas_significantes=apenas_significantes,
+                base_url=base_url,
+            )
+        except ApiError as exc:
+            st.error(f"Não foi possível obter a causalidade de Granger: {exc}")
+            return
+
+        met1, met2 = st.columns(2)
+        met1.metric("Pares retornados", payload.get("total_pares"))
+        met2.metric(
+            "Pares significantes (total testado)",
+            f"{payload.get('total_significantes')} / {payload.get('total_pares')}",
+        )
+
+        try:
+            st.plotly_chart(figura_granger(payload), width="stretch")
+        except SemDadosParaGraficoError as exc:
+            st.warning(str(exc))
+
+        df_granger = granger_para_dataframe(payload)
+        if df_granger.empty:
+            st.info(
+                "Nenhum par retornado — ajuste a defasagem ou desmarque o filtro de significância."
+            )
+        else:
+            st.dataframe(df_granger.rename(columns=rotulo_coluna), width="stretch")
+        st.caption(
+            "Leitura exploratória: as séries anuais são curtas (~10 observações); "
+            "Granger indica antecipação temporal, não causalidade definitiva."
+        )
+
+    with aba_anomalias:
+        try:
+            payload = obter_anomalias(base_url=base_url)
+        except ApiError as exc:
+            st.error(f"Não foi possível obter as anomalias: {exc}")
+            return
+
+        met1, met2 = st.columns(2)
+        met1.metric("Anomalias no painel RA × ano", payload.get("total_painel"))
+        met2.metric("Anomalias na série mensal (idosos)", payload.get("total_mensal"))
+
+        col_esq, col_dir = st.columns(2)
+        with col_esq:
+            try:
+                st.plotly_chart(figura_anomalias_painel(payload), width="stretch")
+            except SemDadosParaGraficoError as exc:
+                st.warning(str(exc))
+        with col_dir:
+            try:
+                st.plotly_chart(figura_anomalias_mensal(payload), width="stretch")
+            except SemDadosParaGraficoError as exc:
+                st.warning(str(exc))
+
+        df_painel, df_mensal = anomalias_para_dataframes(payload)
+        col_esq, col_dir = st.columns(2)
+        with col_esq:
+            st.markdown("**Detalhe — painel RA × ano**")
+            if df_painel.empty:
+                st.caption("Nenhuma anomalia detectada.")
+            else:
+                st.dataframe(df_painel.rename(columns=rotulo_coluna), width="stretch")
+        with col_dir:
+            st.markdown("**Detalhe — série mensal (idosos)**")
+            if df_mensal.empty:
+                st.caption("Nenhuma anomalia detectada.")
+            else:
+                st.dataframe(df_mensal.rename(columns=rotulo_coluna), width="stretch")
+
+    with aba_zonas:
+        col1, col2 = st.columns(2)
+        tamanho_celula = col1.slider(
+            "Tamanho da célula (km)",
+            min_value=0.5, max_value=5.0, value=1.5, step=0.5, key="an_zq_celula",
+        )
+        top_n = col2.slider(
+            "Células no ranking", min_value=5, max_value=50, value=20, key="an_zq_topn"
+        )
+        try:
+            payload = obter_zonas_quentes(
+                tamanho_celula_km=tamanho_celula, top_n=top_n, base_url=base_url
+            )
+        except ApiError as exc:
+            st.error(f"Não foi possível obter as zonas quentes: {exc}")
+            return
+
+        met1, met2 = st.columns(2)
+        met1.metric("Ano de referência", payload.get("ano_referencia"))
+        met2.metric(
+            "Células com ocorrências",
+            _formatar_numero(payload.get("celulas_com_ocorrencias") or 0),
+        )
+
+        try:
+            st.plotly_chart(figura_zonas_quentes(payload), width="stretch")
+        except SemDadosParaGraficoError as exc:
+            st.warning(str(exc))
+
+        df_zonas = zonas_quentes_para_dataframe(payload)
+        if not df_zonas.empty:
+            st.dataframe(df_zonas.rename(columns=rotulo_coluna), width="stretch")
+        st.caption(
+            "Ocorrências patrimoniais do último ano distribuídas para os centróides "
+            "das RAs sobre uma malha regular do DF."
+        )
+
+
 def _aba_tabelas(base_url: str) -> None:
     st.subheader("Explorar Tabelas Gold")
     tabelas = [t["nome"] for t in listar_tabelas(base_url)]
@@ -596,7 +772,7 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_visao, aba_series, aba_mapa, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_tabelas = st.tabs(
+    aba_visao, aba_series, aba_mapa, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_tabelas = st.tabs(
         [
             "Visão Geral",
             "Séries Temporais",
@@ -606,6 +782,7 @@ def main() -> None:
             "Violência contra idosos",
             "Previsões",
             "Classificação",
+            "Análises",
             "Tabelas",
         ]
     )
@@ -627,6 +804,8 @@ def main() -> None:
             _aba_previsoes(base_url)
         with aba_classificacao:
             _aba_classificacao(base_url)
+        with aba_analises:
+            _aba_analises(base_url)
         with aba_tabelas:
             _aba_tabelas(base_url)
     except ApiError as exc:
