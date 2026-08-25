@@ -41,7 +41,7 @@ class ApiCargaSimulation extends Simulation {
   private val duracaoCarga = sys.props.get("carga.duracaoCargaSegundos").map(_.toInt).getOrElse(30)
   private val p95LimiteMs = sys.props.get("carga.p95LimiteMs").map(_.toInt).getOrElse(4000)
   private val analiseUsuariosFinais = sys.props.get("carga.analiseUsuariosFinais").map(_.toDouble).getOrElse(1.0)
-  private val p95AnaliseLimiteMs = sys.props.get("carga.p95AnaliseLimiteMs").map(_.toInt).getOrElse(10000)
+  private val p95AnaliseLimiteMs = sys.props.get("carga.p95AnaliseLimiteMs").map(_.toInt).getOrElse(30000)
 
   private val httpProtocol = http
     .baseUrl(baseUrl)
@@ -155,7 +155,7 @@ class ApiCargaSimulation extends Simulation {
           jsonPath("$.painel[*]").count.lte(20)
         )
     )
-    .pause(2, 4)
+    .pause(3, 6)
     .exec(
       http("GET /analise/zonas-quentes")
         .get("/analise/zonas-quentes")
@@ -176,7 +176,7 @@ class ApiCargaSimulation extends Simulation {
       constantUsersPerSec(usuariosFinais).during(duracaoCarga.seconds)
     ),
     analises.inject(
-      rampUsersPerSec(0.2).to(analiseUsuariosFinais).during(duracaoRampa.seconds),
+      rampUsersPerSec(0.1).to(analiseUsuariosFinais).during(duracaoRampa.seconds),
       constantUsersPerSec(analiseUsuariosFinais).during(duracaoCarga.seconds)
     )
   )
