@@ -40,6 +40,14 @@ from dashboard.api_client import (
     obter_resumo,
     obter_zonas_quentes,
 )
+from dashboard.contexto_ia import montar_contexto_ia
+from dashboard.ia_client import (
+    DEFAULT_BASE_URL as OLLAMA_BASE_URL_PADRAO,
+    MODELO_PADRAO as OLLAMA_MODELO_PADRAO,
+    OllamaError,
+    gerar_resumo_ia,
+    listar_modelos_ollama,
+)
 from dashboard.visualizacoes import (
     COLUNA_REGIAO,
     COLUNAS_IDADES,
@@ -268,6 +276,43 @@ def _aba_visao_geral(base_url: str) -> None:
             "Estatísticas e box plot calculados sobre os registros da tabela "
             "(a tabela não possui coluna de RA)."
         )
+
+
+def _aba_resumo_geral(base_url: str) -> None:
+    st.subheader("Resumo Geral (IA)")
+    st.caption(
+        "Síntese executiva gerada por modelo local (Ollama) a partir dos "
+        "dados expostos pela API de criminalidade."
+    )
+
+    col_url, col_modelo = st.columns([2, 1])
+    url_ollama = col_url.text_input(
+        "URL do Ollama", value=OLLAMA_BASE_URL_PADRAO, key="ia_url"
+    )
+
+    modelos_detectados = listar_modelos_ollama(url_ollama)
+    opcoes_modelo = modelos_detectados or [OLLAMA_MODELO_PADRAO]
+    modelo = col_modelo.selectbox("Modelo", opcoes_modelo, key="ia_modelo")
+
+    if not st.button("Gerar resumo com IA", key="ia_botao"):
+        st.info("Clique em 'Gerar resumo com IA' para produzir a síntese dos dados.")
+        return
+
+    with st.spinner("Coletando dados da API e consultando o modelo local..."):
+        try:
+            contexto = montar_contexto_ia(base_url)
+            resposta = gerar_resumo_ia(contexto, base_url=url_ollama, modelo=modelo)
+        except (ApiError, OllamaError) as exc:
+            st.error(f"Não foi possível gerar o resumo: {exc}")
+            return
+
+    st.markdown(resposta)
+    with st.expander("Contexto de dados enviado ao modelo"):
+        st.text(contexto)
+    st.caption(
+        "Conteúdo gerado automaticamente por IA local; confira os números "
+        "nas demais abas antes de apoiar decisões."
+    )
 
 
 def _aba_series(base_url: str) -> None:
@@ -893,9 +938,10 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_visao, aba_series, aba_mapa, aba_mancha, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_tabelas = st.tabs(
+    aba_visao, aba_resumo, aba_series, aba_mapa, aba_mancha, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_tabelas = st.tabs(
         [
             "Visão Geral",
+            "Resumo Geral",
             "Séries Temporais",
             "Mapa de Calor",
             "Mancha Criminal",
@@ -912,6 +958,8 @@ def main() -> None:
     try:
         with aba_visao:
             _aba_visao_geral(base_url)
+        with aba_resumo:
+            _aba_resumo_geral(base_url)
         with aba_series:
             _aba_series(base_url)
         with aba_mapa:
