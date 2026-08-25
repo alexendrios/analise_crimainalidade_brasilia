@@ -1331,3 +1331,102 @@ def figura_mancha_criminal(
         paper_bgcolor=COR_FUNDO_TRANSPARENTE,
     )
     return fig
+
+
+# =========================================================
+# Visão geral — estatísticas descritivas e box plot
+# =========================================================
+
+def _distribuicao_indicador(df: pd.DataFrame, coluna_valor: str) -> pd.Series:
+    """
+    Distribuição do indicador para estatísticas: soma por RA quando a
+    tabela possui região administrativa; senão, os valores brutos.
+    """
+    if coluna_valor not in df.columns:
+        raise SemDadosParaGraficoError(f"A tabela não possui a coluna '{coluna_valor}'.")
+    if COLUNA_REGIAO in df.columns:
+        return df.groupby(COLUNA_REGIAO)[coluna_valor].sum()
+    return df[coluna_valor].dropna()
+
+
+def estatisticas_descritivas(df: pd.DataFrame, coluna_valor: str) -> Dict[str, float]:
+    """
+    Média, mediana, mínimo, máximo e desvio padrão da distribuição do
+    indicador por RA (ou dos registros brutos, sem coluna de RA).
+
+    Com uma única observação o desvio padrão amostral é indefinido → 0.0.
+    """
+    serie = _distribuicao_indicador(df, coluna_valor).dropna()
+    if serie.empty:
+        raise SemDadosParaGraficoError(
+            "Não há valores numéricos válidos para as estatísticas descritivas."
+        )
+    return {
+        "media": float(serie.mean()),
+        "mediana": float(serie.median()),
+        "minimo": float(serie.min()),
+        "maximo": float(serie.max()),
+        "desvio_padrao": float(serie.std()) if len(serie) >= 2 else 0.0,
+    }
+
+
+def outliers_iqr_para_dataframe(df: pd.DataFrame, coluna_valor: str) -> pd.DataFrame:
+    """
+    RAs fora de [Q1 − 1,5·AIQ; Q3 + 1,5·AIQ], da mais crítica para a menos.
+    Sem coluna de RA — ou sem destoantes — retorna DataFrame vazio.
+    """
+    colunas_saida = [COLUNA_REGIAO, coluna_valor]
+    if COLUNA_REGIAO not in df.columns or coluna_valor not in df.columns:
+        return pd.DataFrame(columns=colunas_saida)
+
+    por_ra = df.groupby(COLUNA_REGIAO)[coluna_valor].sum()
+    q1, q3 = por_ra.quantile(0.25), por_ra.quantile(0.75)
+    amplitude_interquartil = q3 - q1
+    limite_inferior = q1 - 1.5 * amplitude_interquartil
+    limite_superior = q3 + 1.5 * amplitude_interquartil
+
+    fora = por_ra[(por_ra < limite_inferior) | (por_ra > limite_superior)]
+    if fora.empty:
+        return pd.DataFrame(columns=colunas_saida)
+    return fora.reset_index().sort_values(coluna_valor, ascending=False)
+
+
+def figura_boxplot(df: pd.DataFrame, coluna_valor: str) -> go.Figure:
+    """
+    Box plot da distribuição do indicador por RA com todos os pontos
+    visíveis — marcas além de 1,5×AIQ já vêm destacadas como outliers.
+    """
+    serie = _distribuicao_indicador(df, coluna_valor).dropna()
+    if serie.empty:
+        raise SemDadosParaGraficoError("Não há valores numéricos válidos para o box plot.")
+
+    tem_ra = serie.index.name == COLUNA_REGIAO
+    rotulo = rotulo_coluna(coluna_valor)
+
+    fig = go.Figure(
+        go.Box(
+            y=serie.values,
+            name="RAs" if tem_ra else "Registros",
+            boxpoints="all",
+            jitter=0.3,
+            pointpos=-1.8,
+            text=[str(indice).title() for indice in serie.index] if tem_ra else None,
+            hovertemplate=(
+                "%{text}<br>%{y:,.0f}<extra></extra>"
+                if tem_ra
+                else "%{y:,.0f}<extra></extra>"
+            ),
+            marker=dict(color="#e74c3c", size=6),
+            line=dict(color="#2c3e50"),
+            fillcolor="rgba(52, 152, 219, 0.25)",
+        )
+    )
+    fig.update_layout(
+        title=f"Distribuição de {rotulo}{' por RA' if tem_ra else ''}",
+        yaxis_title=rotulo,
+        height=440,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig

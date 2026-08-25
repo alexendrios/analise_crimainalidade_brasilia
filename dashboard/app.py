@@ -49,8 +49,10 @@ from dashboard.visualizacoes import (
     coluna_ano_disponivel,
     colunas_categoricas,
     colunas_numericas,
+    estatisticas_descritivas,
     figura_anomalias_mensal,
     figura_anomalias_painel,
+    figura_boxplot,
     figura_granger,
     figura_heatmap_correlacoes,
     figura_heatmap_probabilidade,
@@ -76,6 +78,7 @@ from dashboard.visualizacoes import (
     matriz_confusao_para_dataframe,
     modelos_para_dataframe,
     odds_ratios_para_dataframe,
+    outliers_iqr_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
     rotulo_coluna,
@@ -217,6 +220,54 @@ def _aba_visao_geral(base_url: str) -> None:
         col4.metric("RAs monitoradas", "—")
 
     st.caption(f"Tabela: {rotulo_tabela(tabela)} • Indicador: {rotulo_coluna(coluna)}")
+
+    st.markdown("### Estatísticas descritivas")
+    try:
+        estat = estatisticas_descritivas(df, coluna)
+    except SemDadosParaGraficoError as exc:
+        st.warning(str(exc))
+        return
+
+    c_media, c_mediana, c_min, c_max, c_dp = st.columns(5)
+    c_media.metric("Média", _formatar_numero(estat["media"]))
+    c_mediana.metric("Mediana", _formatar_numero(estat["mediana"]))
+    c_min.metric("Mínimo", _formatar_numero(estat["minimo"]))
+    c_max.metric("Máximo", _formatar_numero(estat["maximo"]))
+    c_dp.metric(
+        "Desvio padrão",
+        _formatar_numero(estat["desvio_padrao"]),
+        help="Dispersão dos totais por RA em torno da média.",
+    )
+
+    try:
+        st.plotly_chart(figura_boxplot(df, coluna), width="stretch")
+    except SemDadosParaGraficoError as exc:
+        st.warning(str(exc))
+        return
+
+    if COLUNA_REGIAO in df.columns:
+        outliers = outliers_iqr_para_dataframe(df, coluna)
+        if outliers.empty:
+            st.info(
+                "Nenhuma RA destoante pelo critério de 1,5 × AIQ "
+                "(intervalo interquartil) — sem outliers."
+            )
+        else:
+            resumo = ", ".join(
+                f"{str(registro[COLUNA_REGIAO]).title()} "
+                f"({_formatar_numero(float(registro[coluna]))})"
+                for _, registro in outliers.iterrows()
+            )
+            st.warning(f"Possíveis outliers (além de 1,5 × AIQ): {resumo}.")
+        st.caption(
+            "Estatísticas e box plot calculados sobre o total do indicador por RA "
+            "no período completo; pontos além de 1,5 × AIQ são considerados outliers."
+        )
+    else:
+        st.caption(
+            "Estatísticas e box plot calculados sobre os registros da tabela "
+            "(a tabela não possui coluna de RA)."
+        )
 
 
 def _aba_series(base_url: str) -> None:

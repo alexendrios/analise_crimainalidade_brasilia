@@ -12,8 +12,10 @@ from dashboard.visualizacoes import (
     colunas_numericas,
     colunas_valor_indicadores,
     correlacoes_para_dataframe,
+    estatisticas_descritivas,
     figura_anomalias_mensal,
     figura_anomalias_painel,
+    figura_boxplot,
     figura_desaparecidos_localizados,
     figura_desaparecidos_por_idade,
     figura_desaparecidos_por_ra,
@@ -36,6 +38,7 @@ from dashboard.visualizacoes import (
     matriz_confusao_para_dataframe,
     modelos_para_dataframe,
     odds_ratios_para_dataframe,
+    outliers_iqr_para_dataframe,
     previsao_para_dataframe,
     registros_para_dataframe,
     rotulo_coluna,
@@ -822,3 +825,105 @@ def test_figura_mancha_criminal_titulo_sem_ano_nao_tem_recorte():
 
     assert "Mancha criminal" in fig.layout.title.text
     assert "ano" not in fig.layout.title.text
+
+
+# =========================================================
+# Estatísticas descritivas e box plot (visão geral)
+# =========================================================
+
+def test_estatisticas_descritivas_agrega_por_ra():
+    df = pd.DataFrame(
+        {
+            "ano": [2023, 2023, 2023, 2024],
+            "regiao_administrativa": ["Taguatinga", "Ceilândia", "Taguatinga", "Taguatinga"],
+            "crimes": [10, 20, 50, 0],
+        }
+    )
+
+    estat = estatisticas_descritivas(df, "crimes")
+
+    # por RA: Taguatinga 60 e Ceilândia 20
+    assert estat["media"] == pytest.approx(40)
+    assert estat["mediana"] == pytest.approx(40)
+    assert estat["minimo"] == pytest.approx(20)
+    assert estat["maximo"] == pytest.approx(60)
+    assert estat["desvio_padrao"] == pytest.approx(28.2842712474619)
+
+
+def test_estatisticas_descritivas_sem_regiao_usa_valores_brutos():
+    df = pd.DataFrame({"crimes": [10, 20, 30]})
+
+    estat = estatisticas_descritivas(df, "crimes")
+
+    assert estat["media"] == pytest.approx(20)
+    assert estat["mediana"] == pytest.approx(20)
+    assert estat["minimo"] == pytest.approx(10)
+    assert estat["maximo"] == pytest.approx(30)
+    assert estat["desvio_padrao"] == pytest.approx(10)
+
+
+def test_estatisticas_descritivas_uma_observacao_tem_desvio_zero():
+    df = pd.DataFrame({"regiao_administrativa": ["Gama"], "crimes": [7]})
+
+    assert estatisticas_descritivas(df, "crimes")["desvio_padrao"] == 0.0
+
+
+def test_estatisticas_descritivas_coluna_ausente_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="não possui a coluna"):
+        estatisticas_descritivas(pd.DataFrame({"outra": [1]}), "crimes")
+
+
+def test_outliers_iqr_identifica_ra_muito_acima_da_distribuicao():
+    df = pd.DataFrame(
+        {
+            "regiao_administrativa": ["A", "B", "C", "D"],
+            "crimes": [10, 20, 30, 300],
+        }
+    )
+
+    outliers = outliers_iqr_para_dataframe(df, "crimes")
+
+    # Q1=17.5, Q3=97.5 → limite superior 217.5; apenas D fica fora
+    assert list(outliers["regiao_administrativa"]) == ["D"]
+    assert list(outliers["crimes"]) == [300]
+
+
+def test_outliers_iqr_sem_destoantes_retorna_vazio():
+    df = pd.DataFrame(
+        {
+            "regiao_administrativa": ["A", "B", "C", "D"],
+            "crimes": [10, 20, 30, 40],
+        }
+    )
+
+    outliers = outliers_iqr_para_dataframe(df, "crimes")
+
+    assert outliers.empty
+    assert list(outliers.columns) == ["regiao_administrativa", "crimes"]
+
+
+def test_outliers_iqr_sem_coluna_de_ra_retorna_vazio():
+    assert outliers_iqr_para_dataframe(pd.DataFrame({"crimes": [10, 9999]}), "crimes").empty
+
+
+def test_figura_boxplot_plota_todos_os_pontos_das_ras():
+    df = pd.DataFrame(
+        {
+            "regiao_administrativa": ["Taguatinga", "Ceilândia"],
+            "crimes": [10, 20],
+        }
+    )
+    fig = figura_boxplot(df, "crimes")
+    trace = fig.data[0]
+
+    assert isinstance(trace, go.Box)
+    # groupby ordena as RAs: Ceilândia (20) antes de Taguatinga (10)
+    assert list(trace.y) == [20, 10]
+    assert trace.boxpoints == "all"
+    assert list(trace.text) == ["Ceilândia", "Taguatinga"]
+    assert "Distribuição de Crimes" in fig.layout.title.text
+
+
+def test_figura_boxplot_vazio_levanta_erro():
+    with pytest.raises(SemDadosParaGraficoError, match="box plot"):
+        figura_boxplot(pd.DataFrame({"regiao_administrativa": [], "crimes": []}), "crimes")

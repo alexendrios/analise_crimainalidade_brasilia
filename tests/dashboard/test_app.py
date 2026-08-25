@@ -292,6 +292,50 @@ def test_app_visao_geral_exclui_tabelas_nao_sumarizaveis():
     assert "Crimes letais" in opcoes
 
 
+def test_app_visao_geral_exibe_estatisticas_e_boxplot():
+    with _entrar(_pads()):
+        at = _rodar()
+
+    assert not at.exception
+    aba = at.tabs[0]
+    rotulos = [m.label for m in aba.metric]
+    for esperado in ("Média", "Mediana", "Mínimo", "Máximo", "Desvio padrão"):
+        assert esperado in rotulos
+    # por RA: Taguatinga 10 e Ceilândia 20 → média 15 e mediana 15
+    valores = {m.label: m.value for m in aba.metric}
+    assert valores["Média"] == "15"
+    assert valores["Mediana"] == "15"
+    assert len(aba.get("plotly_chart")) == 1
+    assert any("outliers" in i.value.lower() for i in aba.info)
+
+
+def test_app_visao_geral_avisa_sobre_ra_outlier():
+    dados_outlier = {
+        "tabela": "crimes_letais_gold",
+        "total_linhas": 8,
+        "total_paginas": 1,
+        "registros": [
+            {"ano": 2020, "regiao_administrativa": "Taguatinga", "crimes": 10},
+            {"ano": 2021, "regiao_administrativa": "Taguatinga", "crimes": 10},
+            {"ano": 2020, "regiao_administrativa": "Ceilândia", "crimes": 20},
+            {"ano": 2021, "regiao_administrativa": "Ceilândia", "crimes": 20},
+            {"ano": 2020, "regiao_administrativa": "Gama", "crimes": 30},
+            {"ano": 2021, "regiao_administrativa": "Gama", "crimes": 30},
+            {"ano": 2020, "regiao_administrativa": "Brasília", "crimes": 150},
+            {"ano": 2021, "regiao_administrativa": "Brasília", "crimes": 150},
+        ],
+    }
+    pads = list(_pads())
+    pads[1] = patch("dashboard.api_client.obter_dados", return_value=dados_outlier)
+    with _entrar(pads):
+        at = _rodar()
+
+    assert not at.exception
+    avisos = " ".join(w.value for w in at.tabs[0].warning)
+    assert "Brasília" in avisos
+    assert "outlier" in avisos.lower()
+
+
 def test_app_series_exclui_tabelas_nao_serie_temporal():
     tabelas = [
         TABELA,
