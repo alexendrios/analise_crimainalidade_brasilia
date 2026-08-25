@@ -45,7 +45,7 @@ REM ============================================================
 echo [3/4] Fase 1 - pytest rapido com xdist...
 echo.
 
-venv\Scripts\python.exe -m pytest -q --no-header --tb=line 2>&1 | tee logs\testes.log
+powershell -NoProfile -Command "& 'venv\Scripts\python.exe' -m pytest -q --no-header --tb=line 2>&1 | Tee-Object -FilePath 'logs\testes.log'"
 
 set TEST_EXIT=%ERRORLEVEL%
 
