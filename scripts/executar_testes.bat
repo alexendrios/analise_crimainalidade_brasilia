@@ -45,15 +45,15 @@ REM ============================================================
 echo [3/4] Fase 1 - pytest rapido com xdist...
 echo.
 
-powershell -NoProfile -Command "& 'venv\Scripts\python.exe' -m pytest -q --no-header --tb=line 2>&1 | Tee-Object -FilePath 'logs\testes.log'"
-
+venv\Scripts\python.exe -m pytest -q --no-header --tb=line > logs\testes.log 2>&1
 set TEST_EXIT=%ERRORLEVEL%
+type logs\testes.log
 
 echo.
 echo ----------------------------------------------------------------------
 
 if not "%TEST_EXIT%"=="0" (
-    echo [ERRO] Suite de testes falhou (exit %TEST_EXIT%).
+    echo [ERRO] Suite de testes falhou (exit code: %TEST_EXIT%).
     echo Log: logs\testes.log
     pause
     exit /b %TEST_EXIT%
