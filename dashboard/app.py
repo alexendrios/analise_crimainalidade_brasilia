@@ -279,11 +279,14 @@ def _aba_visao_geral(base_url: str) -> None:
 
 
 def _mostrar_top5_ras(base_url: str) -> None:
-    tabelas_disponiveis = [
-        t["nome"]
-        for t in listar_tabelas(base_url)
-        if t.get("disponivel_no_banco", False)
-    ]
+    try:
+        tabelas_disponiveis = [
+            t["nome"]
+            for t in listar_tabelas(base_url)
+            if t.get("disponivel_no_banco", False)
+        ]
+    except ApiError:
+        return
 
     tabelas_crime = [
         t for t in tabelas_disponiveis

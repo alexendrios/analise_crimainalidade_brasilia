@@ -534,6 +534,8 @@ def test_app_health_falha_exibe_error():
     pads = [
         patch("dashboard.api_client.health", side_effect=ApiError("API lenta")),
         patch("dashboard.api_client.listar_modelos", return_value=[]),
+        patch("dashboard.api_client.listar_tabelas", return_value=[TABELA]),
+        patch("dashboard.api_client.obter_dados", return_value=DADOS),
     ]
     with _entrar(pads):
         at = _rodar()
