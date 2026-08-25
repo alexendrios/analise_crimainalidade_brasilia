@@ -37,8 +37,8 @@ REM ============================================================
 REM CRIAR DIRETORIO DE RELATORIOS
 REM ============================================================
 
-if not exist "tests_report" (
-    mkdir "tests_report"
+if not exist "test_report" (
+    mkdir "test_report"
 )
 
 echo [2/5] Diretorio de relatorios preparado.
