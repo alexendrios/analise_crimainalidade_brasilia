@@ -63,6 +63,7 @@ class ApiCargaSimulation extends Simulation {
   private val nomeAnalises = "Analises executivas (correlacoes + granger + anomalias + zonas)"
 
   private val leitura = scenario(nomeLeitura)
+    .pause(20)
     .feed(tabelaAleatoria)
     .group(nomeLeitura) {
       exec(
@@ -119,6 +120,7 @@ class ApiCargaSimulation extends Simulation {
     }
 
   private val analises = scenario(nomeAnalises)
+    .pause(20)
     .group(nomeAnalises) {
       exec(
       http("GET /analise/correlacoes")
@@ -170,7 +172,37 @@ class ApiCargaSimulation extends Simulation {
     )
     }
 
+  private val warmup = scenario("Warmup: preenche cache de analises")
+    .exec(
+      http("GET /analise/correlacoes")
+        .get("/analise/correlacoes")
+        .queryParam("metodo", "pearson")
+        .queryParam("top_n", "5")
+        .check(status.is(200))
+    )
+    .exec(
+      http("GET /analise/granger")
+        .get("/analise/granger")
+        .queryParam("apenas_significantes", "false")
+        .queryParam("limite", "50")
+        .check(status.is(200))
+    )
+    .exec(
+      http("GET /analise/anomalias")
+        .get("/analise/anomalias")
+        .queryParam("limite", "20")
+        .check(status.is(200))
+    )
+    .exec(
+      http("GET /analise/zonas-quentes")
+        .get("/analise/zonas-quentes")
+        .queryParam("tamanho_celula_km", "1.5")
+        .queryParam("top_n", "10")
+        .check(status.is(200))
+    )
+
   setUp(
+    warmup.inject(atOnceUsers(1)),
     leitura.inject(
       rampUsersPerSec(usuariosIniciais).to(usuariosFinais).during(duracaoRampa.seconds),
       constantUsersPerSec(usuariosFinais).during(duracaoCarga.seconds)

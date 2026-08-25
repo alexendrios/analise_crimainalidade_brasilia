@@ -173,6 +173,7 @@ def test_cache_evita_recalculo_entre_chamadas_identicas(dados_gold):
 def test_chaves_diferentes_nao_colidem_no_cache(dados_gold):
     with _patch_dados(dados_gold) as mock_carregar:
         analise_service.obter_anomalias(limite=10)
+        analise_service._cache_dados = None
         analise_service.obter_anomalias(limite=20)
 
     assert mock_carregar.call_count == 2

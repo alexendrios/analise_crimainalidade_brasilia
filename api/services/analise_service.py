@@ -9,6 +9,7 @@ tabelas gold carregadas pelo mesmo loader do pipeline de análise
 """
 
 import json
+import threading
 import time
 
 from analysis.anomalias import detectar_anomalias, detectar_anomalias_painel, resumo_anomalias
@@ -42,22 +43,34 @@ class DadosIndisponiveisError(LookupError):
 # caro (~10 s), então repetições dentro da janela são servidas sem recomputar.
 TTL_CACHE_SEGUNDOS = 1800
 _cache_resultados: dict[str, tuple[float, dict]] = {}
+_cache_lock = threading.Lock()
+
+# Cache dedicado para as tabelas gold (evita recarregar 6 tabelas por chamada).
+TTL_DADOS_SEGUNDOS = 300
+_cache_dados: tuple[float, dict] | None = None
+_dados_lock = threading.Lock()
 
 
 def limpar_cache() -> None:
     """Descarta todos os resultados em cache (útil para testes e retreinos)."""
-    _cache_resultados.clear()
+    global _cache_dados
+    with _cache_lock:
+        _cache_resultados.clear()
+    with _dados_lock:
+        _cache_dados = None
 
 
 def _com_cache(chave: str, calculadora) -> dict:
     agora = time.monotonic()
-    entrada = _cache_resultados.get(chave)
-    if entrada is not None and agora - entrada[0] < TTL_CACHE_SEGUNDOS:
-        logger.info("Resultado servido do cache", extra={"chave": chave})
-        return entrada[1]
+    with _cache_lock:
+        entrada = _cache_resultados.get(chave)
+        if entrada is not None and agora - entrada[0] < TTL_CACHE_SEGUNDOS:
+            logger.info("Resultado servido do cache", extra={"chave": chave})
+            return entrada[1]
 
     resultado = calculadora()
-    _cache_resultados[chave] = (agora, resultado)
+    with _cache_lock:
+        _cache_resultados[chave] = (agora, resultado)
     return resultado
 
 
@@ -67,13 +80,23 @@ def _registros(df) -> list[dict]:
 
 
 def _dados() -> dict:
+    global _cache_dados
+    agora = time.monotonic()
+    with _dados_lock:
+        if _cache_dados is not None and agora - _cache_dados[0] < TTL_DADOS_SEGUNDOS:
+            return _cache_dados[1]
+
     try:
-        return carregar_tabelas_gold()
+        dados = carregar_tabelas_gold()
     except Exception as exc:
-        logger.exception("🔥 Falha ao carregar tabelas gold para /analise")
+        logger.exception("Falha ao carregar tabelas gold para /analise")
         raise DadosIndisponiveisError(
-            f"Não foi possível carregar as tabelas gold: {exc}"
+            f"Nao foi possivel carregar as tabelas gold: {exc}"
         ) from exc
+
+    with _dados_lock:
+        _cache_dados = (agora, dados)
+    return dados
 
 
 def obter_correlacoes(metodo: str = "pearson", top_n: int = 5) -> dict:
