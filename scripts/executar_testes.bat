@@ -87,14 +87,6 @@ if not "%COV_EXIT%"=="0" (
     exit /b %COV_EXIT%
 )
 
-REM ============================================================
-REM RELATORIO EXECUTIVO
-REM ============================================================
-
-if exist "scripts\gerar_relatorio_cobertura.py" (
-    call "venv\Scripts\python.exe" "scripts\gerar_relatorio_cobertura.py"
-)
-
 echo.
 echo ======================================================================
 echo                  EXECUCAO CONCLUIDA COM SUCESSO
