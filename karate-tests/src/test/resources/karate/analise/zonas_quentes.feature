@@ -43,3 +43,47 @@ Feature: Zonas quentes na malha geoespacial
     And param top_n = 201
     When method GET
     Then status 422
+
+  Scenario: GET /analise/zonas-quentes com tamanho_celula_km zero retorna 422
+    Given path 'analise', 'zonas-quentes'
+    And param tamanho_celula_km = 0
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/zonas-quentes com tamanho_celula_km negativo retorna 422
+    Given path 'analise', 'zonas-quentes'
+    And param tamanho_celula_km = -1.5
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/zonas-quentes com tamanho_celula_km acima do máximo retorna 422
+    Given path 'analise', 'zonas-quentes'
+    And param tamanho_celula_km = 21
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/zonas-quentes com top_n zero retorna 422
+    Given path 'analise', 'zonas-quentes'
+    And param top_n = 0
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/zonas-quentes com top_n negativo retorna 422
+    Given path 'analise', 'zonas-quentes'
+    And param top_n = -5
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/zonas-quentes com tamanho_celula_km=20 (máximo) respeita o parâmetro
+    Given path 'analise', 'zonas-quentes'
+    And params { tamanho_celula_km: 20, top_n: 3 }
+    When method GET
+    Then status 200
+    And match response.tamanho_celula_km == 20.0
+
+  Scenario: GET /analise/zonas-quentes com top_n=1 devolve exatamente 1 célula
+    Given path 'analise', 'zonas-quentes'
+    And param top_n = 1
+    When method GET
+    Then status 200
+    And match karate.sizeOf(response.zonas) == 1

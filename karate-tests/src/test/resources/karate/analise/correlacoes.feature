@@ -74,3 +74,40 @@ Feature: Correlação multivariada entre indicadores gold
     And param top_n = 31
     When method GET
     Then status 422
+
+  Scenario: GET /analise/correlacoes com top_n=30 (máximo permitido) respeita o limite
+    Given path 'analise', 'correlacoes'
+    And param top_n = 30
+    When method GET
+    Then status 200
+    And match karate.sizeOf(response.pares_destaque) == '#? _ <= 30'
+
+  Scenario: GET /analise/correlacoes com top_n=1 (mínimo permitido) devolve exatamente 1 par
+    Given path 'analise', 'correlacoes'
+    And param top_n = 1
+    When method GET
+    Then status 200
+    And match karate.sizeOf(response.pares_destaque) == 1
+
+  Scenario: GET /analise/correlacoes com top_n negativo retorna 422
+    Given path 'analise', 'correlacoes'
+    And param top_n = -5
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/correlacoes valida simetria da matriz de correlação
+    Given path 'analise', 'correlacoes'
+    When method GET
+    Then status 200
+    And def indicadores = response.indicadores
+    And def matriz = response.matriz_correlacao
+    And def simetrica = indicadores.every(function(a){ return indicadores.every(function(b){ return matriz[a][b] == matriz[b][a]; }); })
+    And match simetrica == true
+
+  Scenario: GET /analise/correlacoes inclui todos os indicadores nas chaves da matriz
+    Given path 'analise', 'correlacoes'
+    When method GET
+    Then status 200
+    And def chavesMatriz = karate.keysOf(response.matriz_correlacao)
+    And def contemTodos = response.indicadores.every(function(ind){ return chavesMatriz.includes(ind); })
+    And match contemTodos == true

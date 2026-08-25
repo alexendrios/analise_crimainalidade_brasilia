@@ -52,3 +52,43 @@ Feature: Causalidade de Granger entre indicadores anuais
     And param max_lag = 4
     When method GET
     Then status 422
+
+  Scenario: GET /analise/granger com limite=1 devolve no máximo 1 par
+    Given path 'analise', 'granger'
+    And params { apenas_significantes: false, limite: 1 }
+    When method GET
+    Then status 200
+    And match karate.sizeOf(response.pares) == '#? _ <= 1'
+
+  Scenario: GET /analise/granger com limite=200 (máximo permitido) não retorna erro
+    Given path 'analise', 'granger'
+    And params { apenas_significantes: false, limite: 200 }
+    When method GET
+    Then status 200
+
+  Scenario: GET /analise/granger com limite=0 retorna 422
+    Given path 'analise', 'granger'
+    And param limite = 0
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/granger com limite negativo retorna 422
+    Given path 'analise', 'granger'
+    And param limite = -10
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/granger com limite acima do máximo retorna 422
+    Given path 'analise', 'granger'
+    And param limite = 201
+    When method GET
+    Then status 422
+
+  Scenario: GET /analise/granger devolve campos obrigatórios em cada par
+    Given path 'analise', 'granger'
+    And params { apenas_significantes: false, limite: 10 }
+    When method GET
+    Then status 200
+    And match each response.pares[*].origem != null
+    And match each response.pares[*].destino != null
+    And match each response.pares[*].significante != null
