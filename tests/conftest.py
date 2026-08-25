@@ -63,6 +63,10 @@ COVERAGE_MINIMUM = 95.0
 # ============================================================
 # ESTATÍSTICAS DA EXECUÇÃO
 # ============================================================
+#
+# Coletadas via terminalreporter.stats (compatível com xdist)
+# e via pytest_runtest_makereport para o caso sem xdist.
+# ============================================================
 
 _EXECUTION_STATS = {
     "passed": 0,
@@ -111,11 +115,18 @@ def pytest_configure(config):
 # INÍCIO DA EXECUÇÃO
 # ============================================================
 
+_SESSION_REF = None
+
 
 def pytest_sessionstart(session):
     """
-    Registra o início da execução para cálculo da duração.
+    Registra o início da execução para cálculo da duração
+    e armazena referência da session para uso nos hooks do HTML.
     """
+
+    global _SESSION_REF
+
+    _SESSION_REF = session
 
     session.config._sspdf_start_time = time.perf_counter()
 
@@ -130,8 +141,11 @@ def pytest_runtest_makereport(item, call):
     """
     Captura o resultado individual dos testes.
 
-    Não utiliza session.stats, garantindo compatibilidade
-    com versões modernas do pytest.
+    Compatível com xdist:
+        - Em modo single-process: popula _EXECUTION_STATS
+          diretamente, garantindo dados antes do HTML summary;
+        - Em modo xdist: worker popula sua cópia local;
+          o controller usa terminalreporter.stats como fallback.
     """
 
     outcome = yield
@@ -188,19 +202,33 @@ def pytest_sessionfinish(session, exitstatus):
     """
     Finaliza a coleta dos indicadores da execução.
 
-    Importante:
-        - Não utiliza session.stats;
-        - Não executa coverage.report();
-        - A cobertura fica sob responsabilidade do pytest-cov.
+    Compatibilidade com pytest-xdist:
+        - Em modo single-process: lê de _EXECUTION_STATS;
+        - Em modo xdist: lê de terminalreporter.stats
+          que é consolidado pelo controller.
     """
 
     global _EXECUTION_STATS
 
-    passed = _EXECUTION_STATS["passed"]
-    failed = _EXECUTION_STATS["failed"]
-    skipped = _EXECUTION_STATS["skipped"]
-    xfailed = _EXECUTION_STATS["xfailed"]
-    xpassed = _EXECUTION_STATS["xpassed"]
+    tr = session.config.pluginmanager.get_plugin(
+        "terminalreporter",
+    )
+
+    if tr is not None and getattr(tr, "stats", {}):
+        stats = tr.stats
+
+        passed = len(stats.get("passed", []))
+        failed = len(stats.get("failed", []))
+        skipped = len(stats.get("skipped", []))
+        xfailed = len(stats.get("xfailed", []))
+        xpassed = len(stats.get("xpassed", []))
+
+    else:
+        passed = _EXECUTION_STATS["passed"]
+        failed = _EXECUTION_STATS["failed"]
+        skipped = _EXECUTION_STATS["skipped"]
+        xfailed = _EXECUTION_STATS["xfailed"]
+        xpassed = _EXECUTION_STATS["xpassed"]
 
     # --------------------------------------------------------
     # TOTAL
@@ -283,19 +311,80 @@ def pytest_html_results_summary(
     """
     Cria um Summary executivo e profissional
     para o relatório HTML.
+
+    Compatibilidade com pytest-xdist:
+        - Em modo xdist, _EXECUTION_STATS pode estar zerado
+          pois pytest_sessionfinish ainda não rodou;
+        - Usamos terminalreporter.stats via _SESSION_REF como
+          fonte primária (dados consolidados dos workers);
+        - Fallback para _EXECUTION_STATS (modo single-process
+          sem xdist, onde pytest_runtest_makereport populou).
     """
 
-    total = _EXECUTION_STATS["total"]
-    passed = _EXECUTION_STATS["passed"]
-    failed = _EXECUTION_STATS["failed"]
-    skipped = _EXECUTION_STATS["skipped"]
-    errors = _EXECUTION_STATS["errors"]
-    xfailed = _EXECUTION_STATS["xfailed"]
-    xpassed = _EXECUTION_STATS["xpassed"]
+    # --------------------------------------------------------
+    # Fonte primária: terminalreporter.stats
+    # (funciona com e sem xdist — dados já disponíveis)
+    # --------------------------------------------------------
 
-    duration = _EXECUTION_STATS["duration"]
+    tr = None
 
-    status = _EXECUTION_STATS["status"]
+    if _SESSION_REF is not None:
+        tr = _SESSION_REF.config.pluginmanager.get_plugin(
+            "terminalreporter",
+        )
+
+    if tr is not None and getattr(tr, "stats", {}):
+        tr_stats = tr.stats
+
+        passed = len(tr_stats.get("passed", []))
+        failed = len(tr_stats.get("failed", []))
+        skipped = len(tr_stats.get("skipped", []))
+        xfailed = len(tr_stats.get("xfailed", []))
+        xpassed = len(tr_stats.get("xpassed", []))
+        errors = 0
+
+    else:
+        passed = _EXECUTION_STATS["passed"]
+        failed = _EXECUTION_STATS["failed"]
+        skipped = _EXECUTION_STATS["skipped"]
+        errors = _EXECUTION_STATS["errors"]
+        xfailed = _EXECUTION_STATS["xfailed"]
+        xpassed = _EXECUTION_STATS["xpassed"]
+
+    total = passed + failed + skipped + xfailed + xpassed
+
+    # --------------------------------------------------------
+    # DURAÇÃO
+    # --------------------------------------------------------
+
+    if _SESSION_REF is not None:
+        start_time = getattr(
+            _SESSION_REF.config,
+            "_sspdf_start_time",
+            None,
+        )
+
+        if start_time is not None:
+            duration = time.perf_counter() - start_time
+
+        else:
+            duration = 0.0
+
+    else:
+        duration = _EXECUTION_STATS["duration"]
+
+    # --------------------------------------------------------
+    # STATUS
+    # --------------------------------------------------------
+
+    if total > 0 and failed == 0:
+        status = "APROVADO"
+
+    elif total > 0:
+        status = "ATENÇÃO"
+
+    else:
+        status = "NÃO EXECUTADO"
 
     # --------------------------------------------------------
     # TAXA DE APROVAÇÃO
