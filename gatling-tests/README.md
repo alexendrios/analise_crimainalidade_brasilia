@@ -42,7 +42,11 @@ mvn gatling:test
 Smoke test (validar que a API responde antes da carga):
 
 ```bash
+# Linux/macOS
 mvn gatling:test -Dgatling.simulationClass=criminalidade.api.SmokeSimulation
+
+# PowerShell
+mvn gatling:test "-Dgatling.simulationClass=criminalidade.api.SmokeSimulation"
 ```
 
 ### Parâmetros da `ApiCargaSimulation`
@@ -66,8 +70,8 @@ Exemplo de uma execução curta:
 mvn gatling:test "-Dcarga.duracaoRampaSegundos=10" "-Dcarga.duracaoCargaSegundos=20"
 ```
 
-> No PowerShell, argumentos com `.`/`=` podem exigir aspas em torno da
-> propriedade inteira, como acima.
+> **PowerShell:** propriedades `-D` com caracteres especiais (`.`/`=`)
+> exigem aspas duplas em torno da propriedade inteira, como nos exemplos acima.
 
 ## Cenários
 
