@@ -64,10 +64,19 @@ PREVISAO = {
 }
 
 
+DADOS_CRIMES = {
+    "registros": [
+        {"regiao_administrativa": "Ceilândia", "homicidio": 10, "roubo_pedestre": 20},
+        {"regiao_administrativa": "Taguatinga", "homicidio": 5, "roubo_pedestre": 15},
+    ],
+}
+
+
 def _pads_contexto():
     return [
         patch("dashboard.contexto_ia.listar_tabelas", return_value=TABELAS),
         patch("dashboard.contexto_ia.obter_resumo", return_value=RESUMO),
+        patch("dashboard.contexto_ia.obter_dados", return_value=DADOS_CRIMES),
         patch("dashboard.contexto_ia.obter_correlacoes", return_value=CORRELACOES),
         patch("dashboard.contexto_ia.obter_granger", return_value=GRANGER),
         patch("dashboard.contexto_ia.obter_anomalias", return_value=ANOMALIAS),
@@ -77,12 +86,13 @@ def _pads_contexto():
     ]
 
 
-def test_montar_contexto_reune_as_sete_secoes():
+def test_montar_contexto_reune_as_oito_secoes():
     with _entrar(_pads_contexto()):
         contexto = montar_contexto_ia("http://api-teste")
 
     for titulo in (
         "## Tabelas gold disponíveis",
+        "## Top 5 RAs com mais ocorrências de crimes",
         "## Correlações entre indicadores",
         "## Causalidade de Granger (indicadores anuais)",
         "## Anomalias (Isolation Forest)",
@@ -93,7 +103,6 @@ def test_montar_contexto_reune_as_sete_secoes():
         assert titulo in contexto
 
     assert "- crimes_letais_gold: 10 linhas, 3 colunas, 1 nulos" in contexto
-    # tabela excluída do resumo não entra no contexto
     assert "identificacao_crimes_contra_mulher_gold" not in contexto
     assert "r = +0.80" in contexto
     assert "roubo_pedestre → homicidio (lag 1, p = 0.01)" in contexto
@@ -101,6 +110,9 @@ def test_montar_contexto_reune_as_sete_secoes():
     assert "R010C005: 120 ocorrências" in contexto
     assert "Taguatinga em 2024" in contexto
     assert "2027: valor previsto 100.0" in contexto
+    # top 5 RAs
+    assert "1º Ceilândia: 30 registros" in contexto
+    assert "2º Taguatinga: 20 registros" in contexto
 
 
 def test_montar_contexto_api_fora_do_ar_marca_as_secoes_como_indisponiveis():
@@ -109,6 +121,7 @@ def test_montar_contexto_api_fora_do_ar_marca_as_secoes_como_indisponiveis():
         for target in (
             "dashboard.contexto_ia.listar_tabelas",
             "dashboard.contexto_ia.obter_resumo",
+            "dashboard.contexto_ia.obter_dados",
             "dashboard.contexto_ia.obter_correlacoes",
             "dashboard.contexto_ia.obter_granger",
             "dashboard.contexto_ia.obter_anomalias",
@@ -120,7 +133,7 @@ def test_montar_contexto_api_fora_do_ar_marca_as_secoes_como_indisponiveis():
     with _entrar(pads):
         contexto = montar_contexto_ia("http://api-teste")
 
-    assert contexto.count("Indisponível no momento.") == 7
+    assert contexto.count("Indisponível no momento.") == 8
     for titulo in ("## Tabelas gold disponíveis", "## Previsão (crimes contra a mulher)"):
         assert titulo in contexto
 

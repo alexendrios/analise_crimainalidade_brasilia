@@ -8,12 +8,15 @@ sem interromper o restante do contexto enviado ao modelo.
 
 from typing import List
 
+import pandas as pd
+
 from dashboard.api_client import (
     ApiError,
     listar_tabelas,
     obter_anomalias,
     obter_classificacao,
     obter_correlacoes,
+    obter_dados,
     obter_granger,
     obter_previsao,
     obter_resumo,
@@ -174,6 +177,38 @@ def _secao_previsao(base_url: str) -> str:
     )
 
 
+def _secao_top5_ras(base_url: str) -> str:
+    try:
+        resp = obter_dados(
+            "crimes_letais_gold", tamanho_pagina=10000, base_url=base_url
+        )
+    except ApiError:
+        return _secao("Top 5 RAs com mais ocorrências de crimes", [])
+
+    registros = resp.get("registros") or []
+    if not registros:
+        return _secao("Top 5 RAs com mais ocorrências de crimes", [])
+
+    df = pd.DataFrame(registros)
+    col_regiao = "regiao_administrativa"
+    colunas_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if col_regiao not in df.columns or not colunas_num:
+        return _secao("Top 5 RAs com mais ocorrências de crimes", [])
+
+    por_ra = df.groupby(col_regiao)[colunas_num].sum().sum(axis=1)
+    top5 = por_ra.sort_values(ascending=False).head(MAX_ITENS_SECAO)
+
+    linhas = [
+        f"{i + 1}º {ra}: {_formatar_numero(int(total))} registros"
+        for i, (ra, total) in enumerate(top5.items())
+    ]
+    return _secao("Top 5 RAs com mais ocorrências de crimes", linhas)
+
+
+def _formatar_numero(valor: int) -> str:
+    return f"{valor:,}".replace(",", ".")
+
+
 def montar_contexto_ia(base_url: str) -> str:
     """
     Reúne as seções de dados da API em um único texto para o LLM.
@@ -181,6 +216,7 @@ def montar_contexto_ia(base_url: str) -> str:
     """
     secoes = [
         _secao_tabelas(base_url),
+        _secao_top5_ras(base_url),
         _secao_correlacoes(base_url),
         _secao_granger(base_url),
         _secao_anomalias(base_url),

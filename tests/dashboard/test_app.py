@@ -369,7 +369,8 @@ def test_app_aba_resumo_geral_gera_resumo_com_sucesso():
     aba = at.tabs[1]
     assert not at.exception
     assert any("# Panorama" in md.value for md in aba.markdown)
-    assert any("Contexto de dados enviado ao modelo" in exp.label for exp in aba.expander)
+    # top 5 RAs é exibido quando o botão é clicado
+    assert any("Top 5 RAs" in sh.value for sh in aba.subheader)
 
 
 def test_app_aba_resumo_geral_falha_exibe_error():

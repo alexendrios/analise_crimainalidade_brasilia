@@ -278,6 +278,31 @@ def _aba_visao_geral(base_url: str) -> None:
         )
 
 
+def _mostrar_top5_ras(base_url: str) -> None:
+    try:
+        resp = obter_dados("crimes_letais_gold", tamanho_pagina=10000, base_url=base_url)
+    except ApiError:
+        return
+
+    registros = resp.get("registros") or []
+    if not registros:
+        return
+
+    df = pd.DataFrame(registros)
+    colunas_num = [c for c in df.columns if pd.api.types.is_numeric_dtype(df[c])]
+    if COLUNA_REGIAO not in df.columns or not colunas_num:
+        return
+
+    por_ra = df.groupby(COLUNA_REGIAO)[colunas_num].sum().sum(axis=1)
+    top5 = por_ra.sort_values(ascending=False).head(5)
+    if top5.empty:
+        return
+
+    st.subheader("Top 5 RAs com mais ocorrências de crimes")
+    for i, (ra, total) in enumerate(top5.items()):
+        st.metric(label=f"{i + 1}º {ra}", value=f"{int(total):,}".replace(",", "."))
+
+
 def _aba_resumo_geral(base_url: str) -> None:
     st.subheader("Resumo Geral (IA)")
     st.caption(
@@ -307,8 +332,7 @@ def _aba_resumo_geral(base_url: str) -> None:
             return
 
     st.markdown(resposta)
-    with st.expander("Contexto de dados enviado ao modelo"):
-        st.text(contexto)
+    _mostrar_top5_ras(base_url)
     st.caption(
         "Conteúdo gerado automaticamente por IA local; confira os números "
         "nas demais abas antes de apoiar decisões."
