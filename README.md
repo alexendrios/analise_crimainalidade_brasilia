@@ -15,6 +15,8 @@
 > **Revisão mais recente (dashboard reformulado):** o painel ganhou **tema dark** (`.streamlit/config.toml` + gráficos Plotly coerentes), uma aba **Visão Geral** com métricas-resumo por indicador (cache de 10 min), filtros de tabelas não comparáveis nos seletores das abas **Séries Temporais** (idosos/desaparecidos) e **Mapa de Calor**, a aba "Idades" renomeada para **Identificação crimes** (tabela fixa `identificacao_crimes_contra_mulher_gold`) e a nova aba **Desaparecidos** com quatro gráficos de barra (sexo, faixa etária, localizados × ainda desaparecidos e RA 2020 × 2021). Estado atual verificado rodando a suíte completa: **755 testes, todos passando, 98,11% de cobertura**. Ver [Dashboard Interativo](#-dashboard-interativo-streamlit--dashboard).
 >
 > **Revisão mais recente (expansão de testes e xdist):** suíte ampliada com testes E2E Karate (88 cenários), dashboard AppTest dividido em 4 arquivos para evitar resource exhaustion, pytest-xdist para execução paralela e scripts de teste revisados. Estado atual: **755 testes, todos passando, 98,11% de cobertura** (limiar mínimo 95%, atingido). Ver [Qualidade e Testes](#-qualidade-e-testes) e [Como Executar](#-como-executar-ambiente-local).
+>
+> **Revisão mais recente (testes E2E de UI):** adicionada a suíte **E2E da interface do dashboard** em `e2e-tests/` — CodeceptJS + Playwright + Cucumber (BDD) + Allure sob Page Object Model, cobrindo carregamento, sidebar/health check da API, as 12 abas e as sub-abas de Análises, em **20 cenários**. Ver [Testes E2E de UI do Dashboard](#-testes-e2e-de-ui-do-dashboard-codeceptjs--playwright--cucumber--allure--e2e-tests).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -154,6 +156,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `dashboard`, `domain`, `ingestion`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`, `validation`) |
 | `karate-tests/` | Testes E2E da API (Karate DSL + Cucumber + Allure) — ver seção própria |
 | `gatling-tests/` | Testes de carga/performance da API (Gatling, Scala/Maven) — ver seção própria |
+| `e2e-tests/` | Testes E2E da UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure + POM) — ver seção própria |
 | `scripts/` | Scripts auxiliares: `executar_testes.bat` (orquestra Fase 1: pytest rápido com xdist → Fase 2: pytest-cov com coverage → relatório executivo → abre relatórios no navegador), `testar-com-coverage.bat` (pytest-cov com gate de 95%), `executar_testes.ps1` (wrapper PowerShell) e `gerar_relatorio_cobertura.py` (relatório executivo de cobertura em `test_report/cobertura-executiva.html`) |
 | `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
 | `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
@@ -395,6 +398,23 @@ Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, 
 
 > **Ajuste de capacidade (commit `99a0823`):** os padrões originais da rampa (`20` usuários/s finais, 60s de carga, p95 de 1000 ms) derrubavam a API local sob alta concorrência. Os defaults foram reduzidos para `5` usuários/s e 30s de carga, e o limite de p95 ampliado para 4000 ms — valores que a API sustenta estável com o endpoint de previsão (Prophet+XGBoost) no fluxo. Para cenários mais agressivos, sobrecarregue via propriedades do sistema (ex.: `-Dcarga.usuariosFinais=10`).
 
+## 🖥️ Testes E2E de UI do Dashboard (CodeceptJS + Playwright + Cucumber + Allure — `e2e-tests/`)
+
+Suíte de testes **end-to-end da interface** do dashboard Streamlit, escrita em **Gherkin (Cucumber)** e executada com **CodeceptJS** + **Playwright** (Chromium) sob o padrão **Page Object Model (POM)**, com relatório **Allure** (evidências de screenshot/vídeo/trace anexadas em falhas). Cobre o carregamento e título do dashboard, a configuração da API na sidebar (health check), a navegação pelas **12 abas** (`aria-selected` + conteúdo renderizado) e as **sub-abas de Análises** (Correlações, Granger, Anomalias, Zonas Quentes). Total: **20 cenários** (dashboard=3, tabs=12, interactions=5).
+
+Page objects em `tests/pages/` (`BasePage`, `SidebarPage`, `tests/pages/tabs/*` — um por aba), features em `tests/features/ui/` e step definitions em `tests/steps/ui/`. Uso de `async/await` com waits tolerantes para a renderização lenta das abas pesadas.
+
+```bash
+# Requer o dashboard Streamlit no ar (streamlit run dashboard/app.py -> localhost:8501) e a API (uvicorn api.main:app -> localhost:8000)
+cd e2e-tests
+npm install
+npx playwright install chromium
+npm run test:all        # roda 20 cenários com o plugin Allure
+npm run allure:serve     # serve o relatório
+```
+
+Scripts disponíveis: `test:ui`, `test:e2e`, `test:smoke`, `test:regression`, `test:all`, `test:headed`, `allure:attach`, `allure:serve`, `allure:report`. Detalhes em `e2e-tests/README.md`.
+
 ## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
 
 - ✅ **Padronização de RA consolidada:** as variantes de nome de Região Administrativa (ex.: `SUDOESTE` → `SUDOESTE/OCTOGONAL`) antes eram tratadas por chamadas pontuais e duplicadas de `renomear_linha` em `domain/violencia_mulher.py` e `domain/identificacao_crimes.py`, mais um `.replace({...})` inline e independente em `ViolenciaMulherService.carregar_feminicidio`. Agora existe um único mapeamento mestre (`util.padronizacao.MAPEAMENTO_REGIOES_ADMINISTRATIVAS`, aplicado via `renomear_regioes_conhecidas`), usado pelos três pontos — qualquer nova variante encontrada no futuro deve ser adicionada só ali. Cobertura de teste nova em `tests/util/test_padronizacao.py` e `tests/domain/` (que antes não existiam).
@@ -427,3 +447,4 @@ Registro das direções de evolução. Itens com ✅ **já existem no código** 
 - ✅ **Dashboard interativo (Streamlit/Plotly) implementado** — ver seção "📊 Dashboard Interativo" acima.
 - ✅ **Testes E2E da API (Karate DSL + Cucumber + Allure) implementados** — ver seção "🔁 Testes E2E da API" acima.
 - ✅ **Testes de carga/performance da API (Gatling) implementados** — ver seção "🏋️ Testes de Carga da API" acima.
+- ✅ **Testes E2E de UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure) implementados** — ver seção "🖥️ Testes E2E de UI do Dashboard" acima.
