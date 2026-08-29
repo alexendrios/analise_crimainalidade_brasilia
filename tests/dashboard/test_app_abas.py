@@ -95,6 +95,21 @@ def test_app_aba_mancha_criminal_avisa_quando_nenhuma_ra_tem_centroide():
     assert len(aba.get("plotly_chart")) == 0
 
 
+def test_app_aba_mancha_exclui_tabela_ocorrencias_idosos():
+    tabelas = [
+        TABELA,
+        {"nome": "violencia_idosos_ocorrencias_gold", "disponivel_no_banco": True},
+    ]
+    pads = list(_pads())
+    pads[0] = patch("dashboard.api_client.listar_tabelas", return_value=tabelas)
+    with _entrar(pads):
+        at = _rodar()
+    assert not at.exception
+    opcoes = at.tabs[3].selectbox[0].options
+    assert "Violência contra idosos — ocorrências" not in opcoes
+    assert "Crimes letais" in opcoes
+
+
 def test_app_serie_com_media_movel_renderiza():
     with _entrar(_pads()):
         at = _rodar()

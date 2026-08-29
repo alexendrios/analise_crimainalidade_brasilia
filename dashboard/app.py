@@ -113,6 +113,7 @@ TABELAS_EXCLUIDAS_SERIES = {
 
 TABELAS_EXCLUIDAS_MAPA = TABELAS_EXCLUIDAS_SERIES | {
     "identificacao_crimes_contra_mulher_gold",
+    "violencia_idosos_ocorrencias_gold",
 }
 
 TABELA_IDENTIFICACAO_CRIMES = "identificacao_crimes_contra_mulher_gold"
