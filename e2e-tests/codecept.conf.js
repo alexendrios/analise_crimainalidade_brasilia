@@ -89,8 +89,47 @@ exports.config = {
 
   include: {
 
-    homePage:
-      './tests/pages/HomePage.js'
+    basePage:
+      './tests/pages/BasePage.js',
+
+    sidebarPage:
+      './tests/pages/SidebarPage.js',
+
+    visaoGeralTab:
+      './tests/pages/tabs/VisaoGeralTab.js',
+
+    seriesTemporaisTab:
+      './tests/pages/tabs/SeriesTemporaisTab.js',
+
+    mapaCalorTab:
+      './tests/pages/tabs/MapaCalorTab.js',
+
+    manchaCriminalTab:
+      './tests/pages/tabs/ManchaCriminalTab.js',
+
+    identificacaoCrimesTab:
+      './tests/pages/tabs/IdentificacaoCrimesTab.js',
+
+    desaparecidosTab:
+      './tests/pages/tabs/DesaparecidosTab.js',
+
+    violenciaIdososTab:
+      './tests/pages/tabs/ViolenciaIdososTab.js',
+
+    previsoesTab:
+      './tests/pages/tabs/PrevisoesTab.js',
+
+    classificacaoTab:
+      './tests/pages/tabs/ClassificacaoTab.js',
+
+    analisesTab:
+      './tests/pages/tabs/AnalisesTab.js',
+
+    resumoGeralTab:
+      './tests/pages/tabs/ResumoGeralTab.js',
+
+    tabelasTab:
+      './tests/pages/tabs/TabelasTab.js'
   },
 
   // ==========================================
@@ -113,10 +152,12 @@ exports.config = {
   gherkin: {
 
     features:
-      './tests/features/*.feature',
+      './tests/features/**/*.feature',
 
     steps: [
-      './tests/steps/home_page_steps.js'
+      './tests/steps/ui/dashboard_steps.js',
+      './tests/steps/ui/tabs_steps.js',
+      './tests/steps/ui/interactions_steps.js'
     ]
   },
 
