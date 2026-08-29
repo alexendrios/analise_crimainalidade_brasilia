@@ -128,10 +128,10 @@ Assim o mesmo passo é reutilizado por todos os valores, e cada linha de `Exampl
 
 ### Cenários de widgets (`widgets.feature`)
 
-Cobertura da presença dos controles estáveis de cada aba (rótulos fixos, independentes do valor dos dados):
+Cobertura da presença dos controles estáveis de cada aba (rótulos fixos, independentes do valor dos dados). É um **Scenario Outline + Examples** único (10 exemplos) que reutiliza o passo parametrizado `Then eu visualizo os widgets de "<tipo>"`, despachando para o page object correto via `widgets_steps.js`; cada linha de `Examples` gera um teste independente (TC-WDGT-01..10).
 
 - `#waitForText(label, 45)` é usado em vez de `I.see` para tolerar a renderização assíncrona do conteúdo de cada aba (a carga dispara chamadas à API).
-- Sub-abas não padrão da aba Análises (Granger, Zonas Quentes) exigem **ativar a sub-aba** (`AnalisesTab.clicarSubAba`) antes de verificar seus widgets, pois o conteúdo só é carregado sob clique; Correlações é a sub-aba padrão e carrega automaticamente.
+- Sub-abas não padrão da aba Análises (Granger, Zonas Quentes) exigem **ativar a sub-aba** (`AnalisesTab.clicarSubAba`, aguardado com `await`) antes de verificar seus widgets, pois o conteúdo só é carregado sob clique; Correlações é a sub-aba padrão e carrega automaticamente.
 
 ### Evidências no Allure
 

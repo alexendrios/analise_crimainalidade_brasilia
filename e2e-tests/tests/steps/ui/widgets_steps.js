@@ -8,87 +8,79 @@ const {
   tabelasTab
 } = inject();
 
-Then('eu visualizo os widgets de seleção da Visão Geral', async () => {
+const CHECKS = {
 
-  await visaoGeralTab.verAbaSelecionada();
+  async 'seleção Visão Geral'() {
 
-  await visaoGeralTab.verSelectboxCrimes();
+    visaoGeralTab.verSelectboxCrimes();
+    visaoGeralTab.verSelectboxIndicador();
+  },
 
-  await visaoGeralTab.verSelectboxIndicador();
-});
+  async 'métricas Visão Geral'() {
 
-Then('eu visualizo as métricas descritivas da Visão Geral', async () => {
+    visaoGeralTab.verMetricasDescritivas();
+  },
 
-  await visaoGeralTab.verAbaSelecionada();
+  async 'Previsões'() {
 
-  await visaoGeralTab.verMetricasDescritivas();
-});
+    previsoesTab.verSliderHorizonte();
+    previsoesTab.verMetricasModelo();
+  },
 
-Then('eu visualizo o controle de horizonte e as métricas de Previsões', async () => {
+  async 'Classificação'() {
 
-  await previsoesTab.verAbaSelecionada();
+    classificacaoTab.verSelectboxAnoRanking();
+    classificacaoTab.verMetricasModelo();
+  },
 
-  await previsoesTab.verSliderHorizonte();
+  async 'sub-abas Análises'() {
 
-  await previsoesTab.verMetricasModelo();
-});
+    analisesTab.verSubAbas();
+  },
 
-Then('eu visualizo o seletor de ano e as métricas de Classificação', async () => {
+  async 'Correlações'() {
 
-  await classificacaoTab.verAbaSelecionada();
+    // "Correlações" é a sub-aba padrão da aba Análises; seu conteúdo é
+    // carregado automaticamente ao ativar a aba, sem necessidade de clique.
+    analisesTab.verWidgetsCorrelacoes();
+  },
 
-  await classificacaoTab.verSelectboxAnoRanking();
+  async 'Granger'() {
 
-  await classificacaoTab.verMetricasModelo();
-});
+    await analisesTab.clicarSubAba('Granger');
 
-Then('eu visualizo as sub-abas e os controles de Análises', async () => {
+    analisesTab.verWidgetsGranger();
+  },
 
-  await analisesTab.verAbaSelecionada();
+  async 'Zonas Quentes'() {
 
-  await analisesTab.verSubAbas();
-});
+    await analisesTab.clicarSubAba('Zonas Quentes');
 
-Then('eu visualizo os controles da sub-aba Correlações', async () => {
+    analisesTab.verWidgetsZonasQuentes();
+  },
 
-  // "Correlações" é a sub-aba padrão da aba Análises; seu conteúdo é
-  // carregado automaticamente ao ativar a aba, sem necessidade de clique.
-  await analisesTab.verWidgetsCorrelacoes();
-});
+  async 'Resumo Geral IA'() {
 
-Then('eu visualizo os controles da sub-aba Granger', async () => {
+    resumoGeralTab.verTextUrlOllama();
+    resumoGeralTab.verSelectboxModelo();
+    resumoGeralTab.verBotaoGerarResumo();
+  },
 
-  await analisesTab.clicarSubAba('Granger');
+  async 'Tabelas'() {
 
-  await analisesTab.verWidgetsGranger();
-});
+    tabelasTab.verSelectboxCrimes();
+    tabelasTab.verWidgetsFiltro();
+  }
+};
 
-Then('eu visualizo os controles da sub-aba Zonas Quentes', async () => {
+Then('eu visualizo os widgets de {string}', async (tipo) => {
 
-  await analisesTab.clicarSubAba('Zonas Quentes');
+  const check = CHECKS[tipo];
 
-  await analisesTab.verWidgetsZonasQuentes();
-});
+  if (!check) {
 
-Then('eu visualizo os controles de IA do Resumo Geral', async () => {
+    throw new Error(`Tipo de verificação de widgets desconhecido: "${tipo}"`);
+  }
 
-  await resumoGeralTab.verAbaSelecionada();
-
-  await resumoGeralTab.verTextUrlOllama();
-
-  await resumoGeralTab.verSelectboxModelo();
-});
-
-Then('eu visualizo o botão de gerar resumo com IA', async () => {
-
-  await resumoGeralTab.verBotaoGerarResumo();
-});
-
-Then('eu visualizo os widgets de filtro da aba Tabelas', async () => {
-
-  await tabelasTab.verAbaSelecionada();
-
-  await tabelasTab.verSelectboxCrimes();
-
-  await tabelasTab.verWidgetsFiltro();
+  await check();
 });
