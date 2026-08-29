@@ -26,7 +26,8 @@ e2e-tests/
 │   ├── features/ui/                    # CENÁRIOS BDD (Gherkin)
 │   │   ├── dashboard.feature          # Carregamento, título, sidebar (3 cenários)
 │   │   ├── tabs.feature               # Navegação entre as 12 abas (12 cenários)
-│   │   └── interactions.feature       # Health check + sub-abas de Análises (5 cenários)
+│   │   ├── interactions.feature       # Health check + sub-abas de Análises (5 cenários)
+│   │   └── widgets.feature            # Presença de controle e métricas por aba (10 cenários)
 │   │
 │   ├── pages/                          # PAGE OBJECTS
 │   │   ├── BasePage.js                # Base: seletores Streamlit e navegação de abas
@@ -107,7 +108,8 @@ npm run allure:report
 | dashboard | 3 | Carregamento, título, sidebar, aba padrão |
 | tabs | 12 | Navegação por todas as 12 abas do dashboard |
 | interactions | 5 | Health check da API + sub-abas de Análises |
-| **Total** | **20** | **12 abas + 4 sub-abas + sidebar** |
+| widgets | 10 | Presença de selectboxes, sliders, checkboxes, campos e métricas por aba (inclui Sub-abas de Análises) |
+| **Total** | **30** | **12 abas + 4 sub-abas + sidebar + widgets** |
 
 ### Arquitetura dos cenários e `async/await`
 
@@ -123,6 +125,13 @@ Os cenários **parametrizáveis** usam **Scenario Outline + Examples** para elim
 - `interactions.feature` — TC-INT-04..06 como outline (3 exemplos de sub-aba de Análises); TC-INT-01 e TC-INT-03 permanecem únicos (este último é `@smoke`).
 
 Assim o mesmo passo é reutilizado por todos os valores, e cada linha de `Examples` gera um teste independente nos relatórios/evidências.
+
+### Cenários de widgets (`widgets.feature`)
+
+Cobertura da presença dos controles estáveis de cada aba (rótulos fixos, independentes do valor dos dados):
+
+- `#waitForText(label, 45)` é usado em vez de `I.see` para tolerar a renderização assíncrona do conteúdo de cada aba (a carga dispara chamadas à API).
+- Sub-abas não padrão da aba Análises (Granger, Zonas Quentes) exigem **ativar a sub-aba** (`AnalisesTab.clicarSubAba`) antes de verificar seus widgets, pois o conteúdo só é carregado sob clique; Correlações é a sub-aba padrão e carrega automaticamente.
 
 ### Evidências no Allure
 

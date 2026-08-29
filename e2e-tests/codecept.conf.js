@@ -157,7 +157,8 @@ exports.config = {
     steps: [
       './tests/steps/ui/dashboard_steps.js',
       './tests/steps/ui/tabs_steps.js',
-      './tests/steps/ui/interactions_steps.js'
+      './tests/steps/ui/interactions_steps.js',
+      './tests/steps/ui/widgets_steps.js'
     ]
   },
 

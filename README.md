@@ -16,7 +16,7 @@
 >
 > **Revisão mais recente (expansão de testes e xdist):** suíte ampliada com testes E2E Karate (88 cenários), dashboard AppTest dividido em 4 arquivos para evitar resource exhaustion, pytest-xdist para execução paralela e scripts de teste revisados. Estado atual: **755 testes, todos passando, 98,11% de cobertura** (limiar mínimo 95%, atingido). Ver [Qualidade e Testes](#-qualidade-e-testes) e [Como Executar](#-como-executar-ambiente-local).
 >
-> **Revisão mais recente (testes E2E de UI):** adicionada a suíte **E2E da interface do dashboard** em `e2e-tests/` — CodeceptJS + Playwright + Cucumber (BDD) + Allure sob Page Object Model, cobrindo carregamento, sidebar/health check da API, as 12 abas e as sub-abas de Análises, em **20 cenários**. Ver [Testes E2E de UI do Dashboard](#-testes-e2e-de-ui-do-dashboard-codeceptjs--playwright--cucumber--allure--e2e-tests).
+> **Revisão mais recente (testes E2E de UI):** adicionada a suíte **E2E da interface do dashboard** em `e2e-tests/` — CodeceptJS + Playwright + Cucumber (BDD) + Allure sob Page Object Model, cobrindo carregamento, sidebar/health check da API, as 12 abas, as sub-abas de Análises e a **presença dos controles (widgets) por aba**, em **30 cenários**. Ver [Testes E2E de UI do Dashboard](#-testes-e2e-de-ui-do-dashboard-codeceptjs--playwright--cucumber--allure--e2e-tests).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -400,7 +400,7 @@ Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, 
 
 ## 🖥️ Testes E2E de UI do Dashboard (CodeceptJS + Playwright + Cucumber + Allure — `e2e-tests/`)
 
-Suíte de testes **end-to-end da interface** do dashboard Streamlit, escrita em **Gherkin (Cucumber)** e executada com **CodeceptJS** + **Playwright** (Chromium) sob o padrão **Page Object Model (POM)**, com relatório **Allure** (evidências de screenshot/vídeo/trace anexadas em falhas). Cobre o carregamento e título do dashboard, a configuração da API na sidebar (health check), a navegação pelas **12 abas** (`aria-selected` + conteúdo renderizado) e as **sub-abas de Análises** (Correlações, Granger, Anomalias, Zonas Quentes). Total: **20 cenários** (dashboard=3, tabs=12, interactions=5).
+Suíte de testes **end-to-end da interface** do dashboard Streamlit, escrita em **Gherkin (Cucumber)** e executada com **CodeceptJS** + **Playwright** (Chromium) sob o padrão **Page Object Model (POM)**, com relatório **Allure** (evidências de screenshot/vídeo/trace anexadas em falhas). Cobre o carregamento e título do dashboard, a configuração da API na sidebar (health check), a navegação pelas **12 abas** (`aria-selected` + conteúdo renderizado), as **sub-abas de Análises** (Correlações, Granger, Anomalias, Zonas Quentes) e a **presença de controles estáveis** (selectboxes, sliders, checkboxes, campos e métricas) por aba. Total: **30 cenários** (dashboard=3, tabs=12, interactions=5, widgets=10).
 
 Page objects em `tests/pages/` (`BasePage`, `SidebarPage`, `tests/pages/tabs/*` — um por aba), features em `tests/features/ui/` e step definitions em `tests/steps/ui/`. Uso de `async/await` com waits tolerantes para a renderização lenta das abas pesadas.
 
@@ -409,7 +409,7 @@ Page objects em `tests/pages/` (`BasePage`, `SidebarPage`, `tests/pages/tabs/*` 
 cd e2e-tests
 npm install
 npx playwright install chromium
-npm run test:all        # roda 20 cenários com o plugin Allure
+npm run test:all        # roda 30 cenários com o plugin Allure
 npm run allure:serve     # serve o relatório
 ```
 
