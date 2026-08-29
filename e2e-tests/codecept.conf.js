@@ -37,7 +37,7 @@ exports.config = {
 
       url: UI_URL,
 
-      show: true,
+      show: false,
 
       browser: 'chromium',
 
@@ -158,7 +158,10 @@ exports.config = {
       './tests/steps/ui/dashboard_steps.js',
       './tests/steps/ui/tabs_steps.js',
       './tests/steps/ui/interactions_steps.js',
-      './tests/steps/ui/widgets_steps.js'
+      './tests/steps/ui/widgets_steps.js',
+      './tests/steps/ui/visao_geral_steps.js',
+      './tests/steps/ui/series_temporais_steps.js',
+      './tests/steps/ui/mapa_calor_steps.js'
     ]
   },
 

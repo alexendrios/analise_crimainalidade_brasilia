@@ -1,6 +1,8 @@
 const {
   I,
   visaoGeralTab,
+  seriesTemporaisTab,
+  mapaCalorTab,
   previsoesTab,
   classificacaoTab,
   analisesTab,
@@ -57,6 +59,16 @@ const CHECKS = {
     await analisesTab.clicarSubAba('Zonas Quentes');
 
     analisesTab.verWidgetsZonasQuentes();
+  },
+
+  async 'Séries Temporais'() {
+
+    seriesTemporaisTab.verWidgets();
+  },
+
+  async 'Mapa de Calor'() {
+
+    mapaCalorTab.verWidgets();
   },
 
   async 'Resumo Geral IA'() {

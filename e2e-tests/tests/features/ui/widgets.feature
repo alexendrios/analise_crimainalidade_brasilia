@@ -24,3 +24,5 @@ Feature: Widgets do Dashboard
       | TC-WDGT-08 | Análises              | Zonas Quentes           |
       | TC-WDGT-09 | Resumo Geral          | Resumo Geral IA         |
       | TC-WDGT-10 | Tabelas               | Tabelas                 |
+      | TC-WDGT-11 | Séries Temporais      | Séries Temporais        |
+      | TC-WDGT-12 | Mapa de Calor         | Mapa de Calor           |
