@@ -19,22 +19,14 @@ Feature: Interações do Dashboard
     And eu visualizo a sub-aba "Correlações" na aba de Análises
 
   @severity=normal
-  Scenario: TC-INT-04 Navegar para a sub-aba Granger na aba Análises
+  Scenario Outline: <id> Navegar para a sub-aba <subaba> na aba Análises
     Given que eu acesso o dashboard de criminalidade
     When eu ativo a aba "Análises"
     Then a aba "Análises" está selecionada
-    And eu visualizo a sub-aba "Granger" na aba de Análises
+    And eu visualizo a sub-aba "<subaba>" na aba de Análises
 
-  @severity=normal
-  Scenario: TC-INT-05 Navegar para a sub-aba Anomalias na aba Análises
-    Given que eu acesso o dashboard de criminalidade
-    When eu ativo a aba "Análises"
-    Then a aba "Análises" está selecionada
-    And eu visualizo a sub-aba "Anomalias" na aba de Análises
-
-  @severity=normal
-  Scenario: TC-INT-06 Navegar para a sub-aba Zonas Quentes na aba Análises
-    Given que eu acesso o dashboard de criminalidade
-    When eu ativo a aba "Análises"
-    Then a aba "Análises" está selecionada
-    And eu visualizo a sub-aba "Zonas Quentes" na aba de Análises
+    Examples:
+      | id         | subaba       |
+      | TC-INT-04 | Granger      |
+      | TC-INT-05 | Anomalias    |
+      | TC-INT-06 | Zonas Quentes |

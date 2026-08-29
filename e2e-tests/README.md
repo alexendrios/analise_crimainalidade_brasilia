@@ -118,6 +118,12 @@ Os page objects e step definitions fazem uso de `async/await` para operações a
 - **Aguardar conteúdo** — `I.waitForText(subheader, 45)` tolera a renderização lenta das abas pesadas (ex.: Análises, que chama correlações/Granger/anomalias/zonas quentes).
 - **Health check da API** — `I.waitForClickable` + `I.click` no botão e `I.waitForText` para a resposta assíncrona.
 
+Os cenários **parametrizáveis** usam **Scenario Outline + Examples** para eliminar duplicação mantendo IDs únicos (placeholders `<id>`, `<aba>` e `<subaba>` no título e nos passos são substituídos pelo CodeceptJS):
+- `tabs.feature` — TC-TABS-02..12 como outline (11 exemplos de abas); TC-TABS-01 permanece cenário único por carregar a tag `@smoke`.
+- `interactions.feature` — TC-INT-04..06 como outline (3 exemplos de sub-aba de Análises); TC-INT-01 e TC-INT-03 permanecem únicos (este último é `@smoke`).
+
+Assim o mesmo passo é reutilizado por todos os valores, e cada linha de `Examples` gera um teste independente nos relatórios/evidências.
+
 ### Evidências no Allure
 
 A cada execução, screenshot, vídeo e trace (Playwright) são anexados ao relatório Allure via `utils/attach-allure-evidence.js`, acionado pelo `teardown` do `codecept.conf.js`. As evidências são geradas para cenários **que falham** (extensões `.failed.png/.webm/.zip`) e casadas por nome sanitizado do cenário.
