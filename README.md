@@ -16,7 +16,7 @@
 >
 > **Revisão mais recente (expansão de testes e xdist):** suíte ampliada com testes E2E Karate (88 cenários), dashboard AppTest dividido em 4 arquivos para evitar resource exhaustion, pytest-xdist para execução paralela e scripts de teste revisados. Estado atual: **755 testes, todos passando, 98,11% de cobertura** (limiar mínimo 95%, atingido). Ver [Qualidade e Testes](#-qualidade-e-testes) e [Como Executar](#-como-executar-ambiente-local).
 >
-> **Revisão mais recente (testes E2E de UI):** adicionada a suíte **E2E da interface do dashboard** em `e2e-tests/` — CodeceptJS + Playwright + Cucumber (BDD) + Allure sob Page Object Model, cobrindo carregamento, sidebar/health check da API, as 12 abas, as sub-abas de Análises e a **presença dos controles (widgets) por aba**, em **30 cenários**. Ver [Testes E2E de UI do Dashboard](#-testes-e2e-de-ui-do-dashboard-codeceptjs--playwright--cucumber--allure--e2e-tests).
+> **Revisão mais recente (expansão da suíte E2E de UI):** a suíte **E2E da interface do dashboard** em `e2e-tests/` (CodeceptJS + Playwright + Cucumber (BDD) + Allure + Page Object Model) foi ampliada de **30 para 115 cenários** em **15 features**. Além de carregamento, sidebar/health check da API, navegação pelas 12 abas, sub-abas de Análises e presença dos controles (widgets) por aba, cada aba passou a ter cenários de **conteúdo e interação**: métricas/legenda da Visão Geral; indicadores, categorias, RAs, modo de análise e média móvel nas Séries Temporais; ano/ranking no Mapa de Calor; indicador e recorte temporal na Mancha Criminal; largura dos bins na Identificação; gráficos de Desaparecidos e Violência contra idosos; horizonte das Previsões; ano do ranking, limiar e avaliação do modelo na Classificação; Correlações/Granger/Zonas Quentes nas Análises; e métricas de resumo, troca de tabela e filtros (intervalo de anos e região administrativa) na aba Tabelas. Ver [Testes E2E de UI do Dashboard](#-testes-e2e-de-ui-do-dashboard-codeceptjs--playwright--cucumber--allure--e2e-tests).
 
 ### Pipeline de Dados
 ![alt text](image.png)
@@ -156,7 +156,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `dashboard`, `domain`, `ingestion`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`, `validation`) |
 | `karate-tests/` | Testes E2E da API (Karate DSL + Cucumber + Allure) — ver seção própria |
 | `gatling-tests/` | Testes de carga/performance da API (Gatling, Scala/Maven) — ver seção própria |
-| `e2e-tests/` | Testes E2E da UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure + POM) — ver seção própria |
+| `e2e-tests/` | Testes E2E da UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure + POM; **115 cenários** em 15 features) — ver seção própria |
 | `scripts/` | Scripts auxiliares: `executar_testes.bat` (orquestra Fase 1: pytest rápido com xdist → Fase 2: pytest-cov com coverage → relatório executivo → abre relatórios no navegador), `testar-com-coverage.bat` (pytest-cov com gate de 95%), `executar_testes.ps1` (wrapper PowerShell) e `gerar_relatorio_cobertura.py` (relatório executivo de cobertura em `test_report/cobertura-executiva.html`) |
 | `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
 | `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
@@ -400,16 +400,18 @@ Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, 
 
 ## 🖥️ Testes E2E de UI do Dashboard (CodeceptJS + Playwright + Cucumber + Allure — `e2e-tests/`)
 
-Suíte de testes **end-to-end da interface** do dashboard Streamlit, escrita em **Gherkin (Cucumber)** e executada com **CodeceptJS** + **Playwright** (Chromium) sob o padrão **Page Object Model (POM)**, com relatório **Allure** (evidências de screenshot/vídeo/trace anexadas em falhas). Cobre o carregamento e título do dashboard, a configuração da API na sidebar (health check), a navegação pelas **12 abas** (`aria-selected` + conteúdo renderizado), as **sub-abas de Análises** (Correlações, Granger, Anomalias, Zonas Quentes) e a **presença de controles estáveis** (selectboxes, sliders, checkboxes, campos e métricas) por aba. Total: **30 cenários** (dashboard=3, tabs=12, interactions=5, widgets=10).
+Suíte de testes **end-to-end da interface** do dashboard Streamlit, escrita em **Gherkin (Cucumber)** e executada com **CodeceptJS** + **Playwright** (Chromium) sob o padrão **Page Object Model (POM)**, com relatório **Allure** (evidências de screenshot/vídeo/trace anexadas em falhas). Cobre o carregamento e título do dashboard, a configuração da API na sidebar (health check), a navegação pelas **12 abas**, as **sub-abas de Análises**, a **presença de controles estáveis** (selectboxes, sliders, checkboxes, campos e métricas) por aba e, desde a expansão recente, **cenários de conteúdo e interação por aba** (métricas, gráficos, sliders e seletores). Total: **115 cenários** em **15 features** (dashboard=3, tabs=12, interactions=5, widgets=12, visao_geral=12, series_temporais=12, mapa_calor=10, mancha_criminal=12, identificacao_crimes=5, desaparecidos=5, violencia_idosos=5, previsoes=5, classificacao=5, analises=7, tabelas=5).
 
 Page objects em `tests/pages/` (`BasePage`, `SidebarPage`, `tests/pages/tabs/*` — um por aba), features em `tests/features/ui/` e step definitions em `tests/steps/ui/`. Uso de `async/await` com waits tolerantes para a renderização lenta das abas pesadas.
+
+**Técnicas de interação E2E:** sliders do Streamlit são `input[type="range"]` com `aria-label` (= rótulo do widget) e input visualmente clipeado — a interação foca o input via `executeScript` e ajusta com setas `ArrowRight`/`ArrowLeft`, lendo o valor de volta por `executeScript`; comboBoxes (react-aria) usam `[data-testid="stSelectbox"]:visible:has-text("<rótulo>") input` + clique na opção `[role="option"]`, com **fallback de digitação** (`fillField`) para expor opções de listas virtualizadas (a última opção de um dropdown com 12 itens, ex.: "Desaparecidos — por RA" na aba Tabelas, não é renderizada sem filtrar); checkboxes são contêineres `[data-testid="stCheckbox"]` clicáveis. Retries usam **polling sem-throw** (`grabNumberOfVisibleElements` + `setTimeout`), pois helpers que lançam envenenam o recorder do CodeceptJS. Vários cenários **assertam valores reais via API** (ex.: métricas de resumo das tabelas gold — `Linhas` 347/340/33 conforme a tabela selecionada).
 
 ```bash
 # Requer o dashboard Streamlit no ar (streamlit run dashboard/app.py -> localhost:8501) e a API (uvicorn api.main:app -> localhost:8000)
 cd e2e-tests
 npm install
 npx playwright install chromium
-npm run test:all        # roda 30 cenários com o plugin Allure
+npm run test:all        # roda 115 cenários com o plugin Allure
 npm run allure:serve     # serve o relatório
 ```
 

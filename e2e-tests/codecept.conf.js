@@ -161,7 +161,15 @@ exports.config = {
       './tests/steps/ui/widgets_steps.js',
       './tests/steps/ui/visao_geral_steps.js',
       './tests/steps/ui/series_temporais_steps.js',
-      './tests/steps/ui/mapa_calor_steps.js'
+      './tests/steps/ui/mapa_calor_steps.js',
+      './tests/steps/ui/mancha_criminal_steps.js',
+      './tests/steps/ui/identificacao_crimes_steps.js',
+      './tests/steps/ui/desaparecidos_steps.js',
+      './tests/steps/ui/violencia_idosos_steps.js',
+      './tests/steps/ui/previsoes_steps.js',
+      './tests/steps/ui/classificacao_steps.js',
+      './tests/steps/ui/analises_steps.js',
+      './tests/steps/ui/tabelas_steps.js'
     ]
   },
 
