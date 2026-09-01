@@ -2,6 +2,8 @@
 
 > **Nota de atualização:** esta documentação foi revisada para refletir o que está **efetivamente implementado no código** na data desta análise. A versão anterior descrevia uma arquitetura geoespacial com PostGIS, malha hexagonal, dashboard Streamlit e API FastAPI — nenhum desses componentes existia naquele momento no repositório. Eles foram movidos para a seção [Roadmap](#-roadmap--visão-futura) conforme ainda pendentes, ou promovidos de volta ao corpo do documento à medida que foram implementados (caso da API, ver abaixo).
 >
+> **Revisão mais recente (camada de testes de integração com banco real + medição da suíte completa):** adicionada a suíte `tests/integracao/`, que roda contra um **PostgreSQL/PostGIS 16 real** via **Testcontainers** (imagem `postgis/postgis:16-3.4`, sem mocks de banco) — exercita repositório, pipeline gold, API `/gold` (TestClient + banco) e a **malha geoespacial de 2.585 células de 1 km** sobre o DF. Estado atual verificado rodando a suíte completa: **3.653 itens coletados, todos passando, 98,17% de cobertura** (2.897 de integração + 756 não-integração: 656 unitários, 46 de API endpoint via TestClient e 54 de UI AppTest). A suíte E2E Karate da API também foi ampliada para **15 features / 90 cenários**. Ver [Qualidade e Testes](#-qualidade-e-testes) e a seção "🔌 Camada de Testes de Integração" abaixo.
+>
 > **Revisão mais recente (verificada rodando a suíte de fato, commit `38a3d92`):** a cobertura de testes configurada em `pytest.ini` foi ampliada — hoje mede `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (não mais apenas `src`, `util` e `database`); só `validation/` segue sem cobertura própria. Números reais desta rodada: **391 testes coletados, 388 passando, 3 falhando, 99,18% de cobertura** (limiar mínimo 95%, atingido). As 3 falhas são um bug real e reprodutível, não um problema de ambiente — ver [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto). Também confirmado nesta revisão: `.env` **não está mais rastreado pelo Git** (item antes pendente, já resolvido), e todos os modelos `xgb_residual_log_*.pkl` já possuem `_meta.json` completo (a documentação anterior afirmava o contrário).
 >
 > **Implementação de item do roadmap — persistência do Prophet:** o item "persistir o modelo Prophet junto ao XGBoost em `models/`" foi implementado. `save_model_with_metadata` agora aceita um `prophet_model` opcional e salva o par como um único artefato "bundle"; `GET /previsao/crimes-contra-mulher` passa a servir por padrão a partir do bundle mais recente em disco (sem re-treinar), com fallback automático para treino quando não há artefato utilizável; um novo endpoint `POST /previsao/retrain` força o re-treino explícito. Detalhes em [Camada de Consumo (API)](#-camada-de-consumo-api--api). 16 novos testes adicionados (391 → 407 testes coletados), cobertura de `api/services/forecast_service.py` em 100%.
@@ -28,7 +30,7 @@
 
 O projeto coleta, padroniza e consolida séries históricas de criminalidade do Distrito Federal (fontes SSP-DF e dados populacionais do IBGE/GDF), organiza os dados em um **Data Lakehouse em camadas (Bronze → Silver → Gold)** e utiliza o resultado para treinar um modelo híbrido de previsão de séries temporais (Prophet + XGBoost) aplicado hoje a **crimes contra a mulher** por Região Administrativa (RA).
 
-Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo é executado localmente via scripts Python (`src/main.py`); a camada de consumo (API + dashboard) e as suítes E2E/carga estão descritas nas seções ao final deste documento.
+O fluxo é executado localmente via scripts Python (`src/main.py`); além da camada de consumo (API + dashboard), o projeto conta com a **camada geoespacial em PostGIS** (`geoespacial/`) e com as suítes de teste E2E/carga/integração descritas nas seções deste documento.
 
 ## 🧠 Diagrama de Arquitetura Lógica (estado atual)
 
@@ -80,7 +82,8 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
         ┌───────────────────────────────────────────┐
         │   Banco de Dados PostgreSQL (SQLAlchemy)    │
         │─────────────────────────────────────────────│
-        │  • Sem extensão espacial (sem PostGIS)      │
+        │  • PostgreSQL 16 + extensão PostGIS           │
+        │    (imagem postgis/postgis:16-3.4)            │
         │  • Estratégia de carga: FULL REFRESH         │
         │    (to_sql if_exists="replace")              │
         │  • Acesso via Repository Pattern             │
@@ -123,12 +126,12 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | **Coleta** | `requests`, `pandas`, `beautifulsoup4`/scraping próprio | Baixar planilhas SSP-DF, extrair `.zip`, raspar população por RA na Wikipédia |
 | **Configuração de rotas** | `rotas.yaml`, `rotas_ibge.yaml`, `config.yaml`, `config/datasets_config.py` | Descrever datasets, resources e URLs de origem sem hardcode no código |
 | **Tratamento (Bronze→Silver)** | `pandas`, funções em `src/tratamento_crimes.py` e `src/tratamento_populacional.py` | Limpeza, padronização de nomes de RA, conversão wide→long |
-| **Banco de Dados** | `PostgreSQL 16` (via Docker Compose), `SQLAlchemy`, `psycopg2` | Persistência relacional; **sem PostGIS**; carga full refresh |
+| **Banco de Dados** | `PostgreSQL 16` (via Docker Compose, imagem `postgis/postgis:16-3.4`), `SQLAlchemy`, `psycopg2`, `PostGIS` | Persistência relacional com extensão espacial **PostGIS** (malha geoespacial de 1 km por célula; DDL opcional em `geoespacial/postgis.py`); carga full refresh |
 | **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
 | **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html`, `pytest-xdist` | 755 testes, todos passando, **98,11% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Execução paralela com `-n auto --dist=loadfile` (pytest-xdist) reduz tempo de ~82s para ~57s. |
-| **Testes E2E / Carga da API** | `Karate DSL` (Cucumber/Allure), `Gatling` (Scala/Maven) | Suíte E2E dos endpoints da API em `karate-tests/` (88 cenários) e teste de carga com rampa de usuários e asserções de sucesso/p95 em `gatling-tests/` (ver seções próprias) |
-| **Ambiente / Infra** | `Docker Compose` (container `postgres:16`), `.env` para credenciais | Ambiente local reprodutível para o banco |
+| **Testes** | `pytest`, `pytest-cov`, `pytest-html`, `pytest-xdist`, `testcontainers` | **3.653 itens coletados, todos passando — 98,17% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Composição: 2.897 itens de integração (Postgres/PostGIS real via Testcontainers) + 756 não-integração (656 unitários, 46 de API endpoint via TestClient e 54 de UI AppTest). Suíte não-integração paralelizada com `-n auto --dist=loadfile` (pytest-xdist); a integração roda serial com `-n 0`. |
+| **Testes E2E / Carga da API** | `Karate DSL` (Cucumber/Allure), `Gatling` (Scala/Maven) | Suíte E2E dos endpoints da API em `karate-tests/` (**90 cenários em 15 features**) e teste de carga com rampa de usuários e asserções de sucesso/p95 em `gatling-tests/` (ver seções próprias) |
+| **Ambiente / Infra** | `Docker Compose` (container `postgis/postgis:16-3.4` — extensão PostGIS embutida), `.env` para credenciais | Ambiente local reprodutível para o banco |
 
 ### 🧩 Interações Principais (fluxo real)
 
@@ -146,6 +149,7 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | `domain/` | Serviços de domínio por tema (violência contra a mulher, idosos, crimes letais, patrimoniais, discriminatórios, desaparecidos) |
 | `database/` | Conexão SQLAlchemy, repositório de acesso ao Postgres, carga de CSVs |
 | `ingestion/` | Adaptador simples (`Repository`) entre domínio e `database/repository` |
+| `geoespacial/` | Malha regular de células por km (pandas/numpy), centróides aproximados das RAs e DDL PostGIS opcional (`postgis.py`) |
 | `processing/` | Transformações genéricas de datasets e pós-processamento |
 | `validation/` | Validação de chaves e integridade estrutural antes dos merges |
 | `analysis/` | Pipeline de modelagem preditiva (Prophet + XGBoost) |
@@ -153,12 +157,12 @@ Não há componente geoespacial (sem PostGIS, sem malha de células) — o fluxo
 | `config/` | Configuração de datasets (`datasets_config.py`) e paths |
 | `models/` | Modelos treinados (`.pkl`) e metadados (`_meta.json`) de cada execução |
 | `data/` | Camadas `bronze/`, `silver/`, `gold/` do lakehouse local (gerada em runtime; ignorada pelo Git, ver `.gitignore`) |
-| `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `dashboard`, `domain`, `ingestion`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`, `validation`) |
+| `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `dashboard`, `domain`, `geoespacial`, `ingestion`, `integracao`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`, `validation`) |
 | `karate-tests/` | Testes E2E da API (Karate DSL + Cucumber + Allure) — ver seção própria |
 | `gatling-tests/` | Testes de carga/performance da API (Gatling, Scala/Maven) — ver seção própria |
 | `e2e-tests/` | Testes E2E da UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure + POM; **115 cenários** em 15 features) — ver seção própria |
 | `scripts/` | Scripts auxiliares: `executar_testes.bat` (orquestra Fase 1: pytest rápido com xdist → Fase 2: pytest-cov com coverage → relatório executivo → abre relatórios no navegador), `testar-com-coverage.bat` (pytest-cov com gate de 95%), `executar_testes.ps1` (wrapper PowerShell) e `gerar_relatorio_cobertura.py` (relatório executivo de cobertura em `test_report/cobertura-executiva.html`) |
-| `docker-compose.yaml` | Serviço `postgres:16` para ambiente local |
+| `docker-compose.yaml` | Serviço `postgis/postgis:16-3.4` (Postgres 16 + extensão PostGIS embutida) para ambiente local |
 | `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
 
 > A antiga pasta `docs/` (com `projeto.md`, `image.png` e `image-1.png`) foi removida do repositório; as imagens de arquitetura hoje ficam na raiz (`image.png`, `image-1.png`) e este `README.md` é a documentação central do projeto.
@@ -206,9 +210,17 @@ Resultados típicos com os dados atuais: correlação forte entre famílias patr
 
 ## ✅ Qualidade e Testes
 
-- **755 testes** coletados (`pytest`), **todos passando** — **98,11% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Execução paralela via **pytest-xdist** (`-n auto --dist=loadfile`) reduz o tempo de ~82s para ~57s. Todos os módulos cobertos têm 100% de statements; restam apenas ramos parciais defensivos.
+- **3.653 itens** coletados (`pytest`), **todos passando** — **98,17% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Composição da pirâmide: **2.897 itens de integração** (79,3%) + **756 não-integração** (656 unitários, 46 de API endpoint via TestClient e 54 de UI AppTest).
 - Relatórios gerados automaticamente em `test_report/`: relatório de testes HTML (`relatorio-testes.html`) + JUnit (`junit.xml`), cobertura técnica (`coverage/index.html` e `coverage.xml`) e **relatório executivo de cobertura** (`cobertura-executiva.html`, gerado por `scripts/gerar_relatorio_cobertura.py` a partir do `.coverage`). A saída completa do pytest pode ser persistida em `logs/testes.log` via `scripts/executar_testes.bat`, que orquestra o fluxo completo (testes rápidos com xdist → testes com coverage → relatório executivo → abertura dos relatórios no navegador).
-- Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/ingestion`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`, `tests/validation`.
+- Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/geoespacial`, `tests/ingestion`, `tests/integracao`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`, `tests/validation`.
+
+### 🔌 Camada de Testes de Integração (Postgres/PostGIS real — Testcontainers)
+
+Suíte em `tests/integracao/` que roda contra um **PostgreSQL 16 real com PostGIS** (`postgis/postgis:16-3.4`) levantado por **Testcontainers** (exige Docker, derruba no teardown) — sem mocks de banco. Os itens são marcados com `integracao` (via `pytestmark` e reconhecidos pelo marker `integracao` declarado em `pytest.ini`).
+
+- **Cobertura funcional:** repositório (insert, full refresh, análise/resumo, tabelas vazias, nulos, ordenação, UTC, tipos), pipeline gold (persistência fiel, reescrita, resumo pós-reescrita), API `/gold` (resumo/dados/paginação/404/503/filtros por ano e RA — TestClient + banco real) e **geoespacial**: malha de **2.585 células de 1 km** sobre o DF (relação `ST_Contains` célula ↔ ocorrência) na tabela `malha_celula_1km`.
+- **Dados:** fixtures fiéis aos schemas gold em `tests/integracao/dados_gold.py`; `tests/integracao/conftest.py` injeta as variáveis de ambiente (`_CHAVES_AMBIENTE`) e zera os singletons do `obter_engine()`.
+- **Execução:** a suíte não-integração roda (sem Docker) com `pytest -m "not integracao" -n auto` (paralela via pytest-xdist); a integração roda serial com `pytest tests/integracao -n 0` (~4 min, um container por worker). Juntas: **3.653 itens, todos passando**.
 
 ### ✅ Bug de variável de ambiente em `test_connection.py` (resolvido)
 
@@ -252,9 +264,10 @@ python -m src.main
 python -m analysis.pipeline_analise
 # Saída em data/analises/: relatorio_executivo.md/.html + mapa_calor_roubo_pedestre.html
 
-# 6. Rodar a suíte de testes (pytest-xdist paralelizado)
-pytest                    # execução rápida com -n auto --dist=loadfile (pytest.ini)
-pytest --cov              # com cobertura (pytest-cov, --cov-fail-under=95)
+# 6. Rodar a suíte de testes
+pytest -m "not integracao" -n auto  # suíte não-integração (paralela, não requer Docker)
+pytest tests/integracao -n 0        # integração: Postgres/PostGIS real via Testcontainers (requer Docker; ~4 min)
+pytest --cov                        # com cobertura (pytest-cov, --cov-fail-under=95)
 
 # 6b. Script completo (Windows): testes + coverage + relatórios
 scripts\executar_testes.bat
@@ -319,7 +332,7 @@ Os endpoints `/analise/*` calculam sobre as tabelas gold com **cache em memória
 
 **Estratégia de serving da API:** `GET /previsao/crimes-contra-mulher` tenta primeiro `analysis.data_analyzer.localizar_ultimo_modelo_bundle` para achar o bundle mais recente em `models/` e servir a previsão diretamente a partir dele (`fonte_modelo: "artefato"` na resposta, sem treinar nada). Se ainda não existir nenhum bundle utilizável (primeira execução, artefato corrompido ou metadados incompletos), a API treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente (`fonte_modelo: "retreino"`); se `persistir_modelo=true`, esse novo treino já é salvo como bundle, disponível para a próxima chamada. Para forçar um novo treino mesmo com um bundle já disponível (ex.: dados gold atualizados), use `POST /previsao/retrain`, que ignora o cache e qualquer artefato existente, treina do zero e sempre persiste o resultado. Um cache em memória de 30 min (`usar_cache`) evita repetir trabalho — seja servindo do artefato, seja re-treinando — a cada requisição idêntica.
 
-Testes: `tests/api/` (105 testes, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
+Testes: `tests/api/` (**89 itens**, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Os endpoints `/gold/` também são exercitados contra banco real na camada de integração (127 itens em `tests/integracao/`). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
 
 ## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
 
@@ -363,11 +376,11 @@ streamlit run dashboard/app.py
 
 A URL da API pode ser alterada na sidebar do próprio painel (padrão: `http://localhost:8000`).
 
-Testes: `tests/dashboard/` (63 testes AppTest em 4 arquivos: `test_app_geral.py`, `test_app_abas.py`, `test_app_interacao.py`, `test_app_analises.py` + 9 testes unitários de `test_ia_client.py` + 2 de `test_contexto_ia.py`) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco. As funções de visualização têm testes unitários próprios em `tests/dashboard/test_visualizacoes.py`.
+Testes: `tests/dashboard/` (**54 itens AppTest em 4 arquivos**: `test_app_geral.py`, `test_app_abas.py`, `test_app_interacao.py`, `test_app_analises.py`) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco. A lógica de apoio tem unitários próprios: `test_api_client.py` (20), `test_visualizacoes.py` (96), `test_ia_client.py` (9) e `test_contexto_ia.py` (2).
 
 ## 🔁 Testes E2E da API (Karate DSL + Cucumber + Allure — `karate-tests/`)
 
-Suíte de testes **end-to-end** da API de consumo, escrita em **Gherkin (Cucumber)** e executada com **Karate DSL**, com relatório **Allure**. Cobrem `GET /health`, `GET /`, os endpoints de gold (`/gold/tabelas`, `/gold/{tabela}/resumo`, `/gold/{tabela}/dados` com paginação/filtros), de previsão (`GET /previsao/crimes-contra-mulher`, `GET /previsao/modelos`), de classificação (`GET /classificacao/criminalidade-letal`) e as análises executivas (`GET /analise/correlacoes` com matriz quadrada/diagonal 1/pares ordenados por |r|, `GET /analise/granger` com consistência significante × p-valor, `GET /analise/anomalias` sem exposição das colunas internas, e `GET /analise/zonas-quentes` com ordenação e padrão de `celula_id`), incluindo validações de parâmetro inválido (422). Total: **88 cenários** (3 arquivos de feature). Os cenários `@retreino` (`POST /previsao/retrain` e `POST /classificacao/retrain`) treinam e persistem novos artefatos e ficam **excluídos** por padrão (inclua com `mvn test "-Dkarate.options=--tags @retreino"`).
+Suíte de testes **end-to-end** da API de consumo, escrita em **Gherkin (Cucumber)** e executada com **Karate DSL**, com relatório **Allure**. Cobrem `GET /health`, `GET /`, os endpoints de gold (`/gold/tabelas`, `/gold/{tabela}/resumo`, `/gold/{tabela}/dados` com paginação/filtros), de previsão (`GET /previsao/crimes-contra-mulher`, `GET /previsao/modelos`), de classificação (`GET /classificacao/criminalidade-letal`) e as análises executivas (`GET /analise/correlacoes` com matriz quadrada/diagonal 1/pares ordenados por |r|, `GET /analise/granger` com consistência significante × p-valor, `GET /analise/anomalias` sem exposição das colunas internas, e `GET /analise/zonas-quentes` com ordenação e padrão de `celula_id`), incluindo validações de parâmetro inválido (422). Total: **90 cenários** em **15 arquivos de feature** (85 `Scenario` + 1 `Scenario Outline` com 6 linhas de `Examples`). Os cenários `@retreino` (`POST /previsao/retrain` e `POST /classificacao/retrain`) treinam e persistem novos artefatos e ficam **excluídos** por padrão (inclua com `mvn test "-Dkarate.options=--tags @retreino"`).
 
 ```bash
 # Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
@@ -425,7 +438,7 @@ Scripts disponíveis: `test:ui`, `test:e2e`, `test:smoke`, `test:regression`, `t
 - ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
 - ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
 - ✅ **`.env` não é mais rastreado pelo Git:** confirmado nesta revisão (`git ls-tree` não lista o arquivo) — o item antes pendente de `git rm --cached .env` já foi resolvido. Ainda assim, se alguma credencial real chegou a ser commitada antes dessa correção, ela permanece no histórico do repositório e deveria ter sido rotacionada por precaução.
-- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` — cobertura real medida: **98,11%** (755 testes), com `validation/validator.py` em 100% (antes era o único pacote de produção sem testes próprios, coberto em apenas 36%). Execução paralela via pytest-xdist reduz tempo de ~82s para ~57s.
+- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` — cobertura real medida: **98,17%** (3.653 itens, incluindo a camada de integração contra banco real), com `validation/validator.py` em 100% (antes era o único pacote de produção sem testes próprios, coberto em apenas 36%).
 - ✅ **Bug de variável de ambiente em teste resolvido:** a fixture `env_valido` de `tests/database/test_connection.py` usava `POSTGRES_USERNAME`, divergente de `POSTGRES_USER` (código de produção e `.env.example`) — as 3 falhas só não apareciam com `.env` local. Corrigido para `POSTGRES_USER`; ver seção "✅ Qualidade e Testes".
 
 ## 🗺️ Roadmap / Visão Futura
