@@ -39,13 +39,16 @@ echo [2/4] Diretorios preparados.
 echo.
 
 REM ============================================================
-REM FASE 1: PYTEST RAPIDO (xdist, sem coverage)
+REM FASE 1: PYTEST RAPIDO (xdist, sem coverage, sem integracao)
+REM A camada de integracao (Testcontainers/PostGIS) fica para a Fase 2:
+REM rodar `-m "not integracao"` evita que um pytest paralelo levante
+REM N containers PostGIS simultaneos.
 REM ============================================================
 
-echo [3/4] Fase 1 - pytest rapido com xdist...
+echo [3/4] Fase 1 - pytest rapido com xdist (sem integracao)...
 echo.
 
-venv\Scripts\python.exe -m pytest -q --no-header --tb=line > logs\testes.log 2>&1
+venv\Scripts\python.exe -m pytest -q --no-header --tb=line -m "not integracao" -n auto --dist=loadfile > logs\testes.log 2>&1
 set TEST_EXIT=%ERRORLEVEL%
 type logs\testes.log
 
