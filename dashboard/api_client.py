@@ -167,3 +167,9 @@ def obter_zonas_quentes(
         "top_n": top_n,
     }
     return _get(base_url, "/analise/zonas-quentes", params=params)
+
+
+def obter_qualidade(base_url: str = DEFAULT_BASE_URL) -> Dict[str, Any]:
+    """Retorna o Data Quality Score (0-100) do catálogo gold
+    (endpoint /qualidade/dados)."""
+    return _get(base_url, "/qualidade/dados")

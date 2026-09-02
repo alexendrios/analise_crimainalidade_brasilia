@@ -222,6 +222,47 @@ ZONAS_QUENTES = {
     ],
 }
 
+_DIM_GERAL = [
+    {"chave": "completude", "rotulo": "Completude", "escore": 95.0, "aplicavel": True, "peso": 0.25},
+    {"chave": "unicidade", "rotulo": "Unicidade", "escore": 100.0, "aplicavel": True, "peso": 0.2},
+    {"chave": "validade_schema", "rotulo": "Validade de schema", "escore": 100.0, "aplicavel": True, "peso": 0.2},
+    {"chave": "consistencia", "rotulo": "Consistência", "escore": 80.0, "aplicavel": True, "peso": 0.2},
+    {"chave": "atualidade", "rotulo": "Atualidade", "escore": 100.0, "aplicavel": True, "peso": 0.1},
+    {"chave": "cobertura_temporal", "rotulo": "Cobertura temporal", "escore": 70.0, "aplicavel": True, "peso": 0.05},
+]
+
+QUALIDADE = {
+    "gerado_em": "2026-09-01T12:00:00Z",
+    "escore_geral": 92.0,
+    "total_tabelas": 2,
+    "materializadas": 1,
+    "dimensoes": _DIM_GERAL,
+    "tabelas": [
+        {
+            "tabela": "crimes_letais_gold",
+            "materializada": True,
+            "linhas": 2,
+            "colunas": 5,
+            "escore": 92.0,
+            "dimensoes": _DIM_GERAL,
+            "problemas": [],
+            "avisos": ["cobre 7 de 10 anos esperados (2015-2024)"],
+            "ultima_atualizacao": "2026-08-30T10:00:00Z",
+        },
+        {
+            "tabela": "desaparecidos_regiao_gold",
+            "materializada": False,
+            "linhas": 0,
+            "colunas": 0,
+            "escore": 0.0,
+            "dimensoes": [],
+            "problemas": ["tabela não materializada (ou vazia)"],
+            "avisos": [],
+            "ultima_atualizacao": None,
+        },
+    ],
+}
+
 
 def _pads():
     return [
@@ -236,6 +277,7 @@ def _pads():
         patch("dashboard.api_client.obter_granger", return_value=GRANGER),
         patch("dashboard.api_client.obter_anomalias", return_value=ANOMALIAS),
         patch("dashboard.api_client.obter_zonas_quentes", return_value=ZONAS_QUENTES),
+        patch("dashboard.api_client.obter_qualidade", return_value=QUALIDADE),
         patch("dashboard.ia_client.listar_modelos_ollama", return_value=["modelo-local"]),
     ]
 

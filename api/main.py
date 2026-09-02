@@ -19,7 +19,7 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from api.routers import analise, classificacao, gold, previsao
+from api.routers import analise, classificacao, gold, previsao, qualidade
 from api.schemas import HealthResponse
 from database.repository.repository import listar_tabelas
 from util.log import logs
@@ -60,6 +60,7 @@ app.include_router(gold.router)
 app.include_router(previsao.router)
 app.include_router(classificacao.router)
 app.include_router(analise.router)
+app.include_router(qualidade.router)
 
 
 @app.get("/", include_in_schema=False)

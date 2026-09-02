@@ -1430,3 +1430,38 @@ def figura_boxplot(df: pd.DataFrame, coluna_valor: str) -> go.Figure:
         plot_bgcolor=COR_FUNDO_TRANSPARENTE,
     )
     return fig
+
+
+def figura_scores_qualidade(payload: Dict[str, Any]) -> go.Figure:
+    """
+    Barras horizontais com a nota média por dimensão do Data Quality Score
+    (dimensões não aplicáveis são omitidas).
+    """
+    dimensoes = [
+        d for d in payload["dimensoes"] if d["aplicavel"] and d["escore"] is not None
+    ]
+    if not dimensoes:
+        raise SemDadosParaGraficoError("Não há dimensões aplicáveis para desenhar.")
+    dimensoes_ordenadas = sorted(dimensoes, key=lambda d: d["escore"])
+
+    fig = go.Figure(
+        go.Bar(
+            x=[d["escore"] for d in dimensoes_ordenadas],
+            y=[d["rotulo"] for d in dimensoes_ordenadas],
+            orientation="h",
+            marker=dict(color="#3498db"),
+            text=[f"{d['escore']:.0f}/100" for d in dimensoes_ordenadas],
+            textposition="outside",
+            hovertemplate="%{y}: %{x:.2f}/100<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        title="Data Quality Score por dimensão",
+        xaxis_title="Nota média (0-100)",
+        xaxis=dict(range=[0, 100]),
+        height=380,
+        template=TEMA_PLOTLY,
+        paper_bgcolor=COR_FUNDO_TRANSPARENTE,
+        plot_bgcolor=COR_FUNDO_TRANSPARENTE,
+    )
+    return fig

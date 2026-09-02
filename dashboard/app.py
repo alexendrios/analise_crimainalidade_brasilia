@@ -37,6 +37,7 @@ from dashboard.api_client import (
     obter_dados,
     obter_granger,
     obter_previsao,
+    obter_qualidade,
     obter_resumo,
     obter_zonas_quentes,
 )
@@ -61,6 +62,7 @@ from dashboard.visualizacoes import (
     figura_anomalias_mensal,
     figura_anomalias_painel,
     figura_boxplot,
+    figura_scores_qualidade,
     figura_granger,
     figura_heatmap_correlacoes,
     figura_heatmap_probabilidade,
@@ -882,6 +884,64 @@ def _aba_analises(base_url: str) -> None:
         )
 
 
+def _aba_qualidade(base_url: str) -> None:
+    """Data Quality Score (0-100) do catálogo gold por dimensão e tabela."""
+    try:
+        payload = obter_qualidade(base_url)
+    except ApiError as exc:
+        st.error(str(exc))
+        return
+
+    escore_geral = float(payload["escore_geral"])
+    materializadas = int(payload["materializadas"])
+    total_tabelas = int(payload["total_tabelas"])
+
+    st.subheader("Data Quality Score do catálogo gold")
+
+    g1, g2, g3 = st.columns(3)
+    g1.metric("Score geral", f"{escore_geral:.0f}/100")
+    g2.metric("Tabelas materializadas", f"{materializadas} de {total_tabelas}")
+    g3.metric("Tabelas não materializadas", total_tabelas - materializadas)
+
+    dimensoes = [
+        d for d in payload["dimensoes"] if d["aplicavel"] and d["escore"] is not None
+    ]
+    if dimensoes:
+        st.caption("Nota média por dimensão (tabelas materializadas)")
+        try:
+            st.plotly_chart(figura_scores_qualidade(payload))
+        except SemDadosParaGraficoError as exc:
+            st.info(str(exc))
+
+    registros = [
+        {
+            "Tabela": item["tabela"],
+            "Materializada": "sim" if item["materializada"] else "não",
+            "Linhas": item["linhas"],
+            "Score": item["escore"],
+            "Problemas": len(item["problemas"]),
+            "Avisos": len(item["avisos"]),
+        }
+        for item in payload["tabelas"]
+    ]
+    st.dataframe(pd.DataFrame(registros), width="stretch", height=320)
+
+    for item in payload["tabelas"]:
+        with st.expander(f"{item['tabela']} — {item['escore']:.0f}/100"):
+            if not item["materializada"]:
+                st.warning("Tabela não materializada (ou vazia).")
+                continue
+            for d in item["dimensoes"]:
+                if d["aplicavel"]:
+                    st.write(f"{d['rotulo']}: {d['escore']:.0f}/100")
+                else:
+                    st.write(f"{d['rotulo']}: não aplicável")
+            if item["problemas"]:
+                st.error("\n".join(f"- {p}" for p in item["problemas"]))
+            if item["avisos"]:
+                st.caption("\n".join(f"- {a}" for a in item["avisos"]))
+
+
 def _aba_tabelas(base_url: str) -> None:
     st.subheader("Explorar Tabelas Gold")
     tabelas = [t["nome"] for t in listar_tabelas(base_url)]
@@ -939,7 +999,7 @@ def main() -> None:
             except ApiError as exc:
                 st.error(str(exc))
 
-    aba_visao, aba_series, aba_mapa, aba_mancha, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_resumo, aba_tabelas = st.tabs(
+    aba_visao, aba_series, aba_mapa, aba_mancha, aba_identificacao, aba_desaparecidos, aba_idosos, aba_previsoes, aba_classificacao, aba_analises, aba_resumo, aba_tabelas, aba_qualidade = st.tabs(
         [
             "Visão Geral",
             "Séries Temporais",
@@ -953,6 +1013,7 @@ def main() -> None:
             "Análises",
             "Resumo Geral",
             "Tabelas",
+            "Qualidade dos Dados",
         ]
     )
 
@@ -981,6 +1042,8 @@ def main() -> None:
             _aba_resumo_geral(base_url)
         with aba_tabelas:
             _aba_tabelas(base_url)
+        with aba_qualidade:
+            _aba_qualidade(base_url)
     except ApiError as exc:
         st.error(f"Falha ao acessar a API em '{base_url}': {exc}")
         st.caption("Confira se a API está no ar (uvicorn api.main:app --reload --port 8000).")

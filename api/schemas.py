@@ -219,5 +219,42 @@ class ZonasQuentesResponse(BaseModel):
     )
 
 
+class DimensaoQualidadeItem(BaseModel):
+    chave: str = Field(..., description="Identificador da dimensão (completude, unicidade, ...)")
+    rotulo: str = Field(..., description="Nome amigável da dimensão em pt-BR")
+    escore: Optional[float] = Field(
+        None, ge=0.0, le=100.0, description="Nota 0-100 da dimensão (null quando não aplicável)"
+    )
+    aplicavel: bool = Field(..., description="True se a dimensão faz sentido para a tabela")
+    peso: float = Field(..., description="Peso da dimensão na nota agregada")
+
+
+class TabelaQualidadeItem(BaseModel):
+    tabela: str
+    materializada: bool = Field(
+        ..., description="True se a tabela existe no banco e possui registros"
+    )
+    linhas: int
+    colunas: int
+    escore: float = Field(..., ge=0.0, le=100.0, description="Data Quality Score da tabela (0-100)")
+    dimensoes: List[DimensaoQualidadeItem]
+    problemas: List[str]
+    avisos: List[str]
+    ultima_atualizacao: Optional[str] = Field(
+        None, description="Máximo `inserido_em` da tabela (ISO 8601) ou null se indisponível"
+    )
+
+
+class QualidadeResponse(BaseModel):
+    gerado_em: datetime
+    escore_geral: float = Field(
+        ..., ge=0.0, le=100.0, description="Data Quality Score geral do catálogo gold (0-100)"
+    )
+    total_tabelas: int
+    materializadas: int
+    dimensoes: List[DimensaoQualidadeItem]
+    tabelas: List[TabelaQualidadeItem]
+
+
 class ErrorResponse(BaseModel):
     detail: str
