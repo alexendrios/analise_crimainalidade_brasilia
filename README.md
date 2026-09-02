@@ -1,179 +1,117 @@
-# Projeto Criminalidade Brasília - DF
+# Análise de Criminalidade do Distrito Federal
 
-> **Nota de atualização:** esta documentação foi revisada para refletir o que está **efetivamente implementado no código** na data desta análise. A versão anterior descrevia uma arquitetura geoespacial com PostGIS, malha hexagonal, dashboard Streamlit e API FastAPI — nenhum desses componentes existia naquele momento no repositório. Eles foram movidos para a seção [Roadmap](#-roadmap--visão-futura) conforme ainda pendentes, ou promovidos de volta ao corpo do documento à medida que foram implementados (caso da API, ver abaixo).
->
-> **Revisão mais recente (guard do dashboard para gold degenerado):** as tabelas `*_gold` do banco local foram localizadas sobrescritas por dados degenerados (2 linhas, coluna genérica `valor`), esvaziando o seletor "Indicador" da aba Visão Geral — as tabelas **raw** seguiam íntegras, então o gold foi reconstruído com `python -m src.pipeline_tabela_gold` (full refresh idempotente, ~1,5 s). Para evitar reincidência silenciosa, a aba **Visão Geral** agora valida as colunas numéricas contra o schema gold declarado em `validation/esquemas.py`: quando nenhum indicador esperado é encontrado, exibe um aviso com o comando de reconstrução em vez de um dropdown vazio/sem sentido. Regressão coberta por `test_app_visao_geral_gold_degenerado_avisa_reconstrucao` — a camada não-integração subiu para **784 itens** (690 unitários, 37 de API via TestClient e 58 de UI AppTest).
->
-> **Revisão mais recente (auditoria independente da estratégia de teste):** a suíte completa foi re-verificada rodando de fato — **3.681 itens, todos passando** (784 não-integração em ~1 min + 2.897 de integração com Postgres/PostGIS real via Testcontainers em ~4 min — **98% de cobertura**, gate `--cov-fail-under=95` atingido). A auditoria do formato da pirâmide apontou que ela está **invertida**: integração responde por **78,7%** dos itens, inflada pela parametrização das 12 tabelas gold (mesmo comportamento × schema), enquanto os demais são 690 unitários, 37 de API endpoint via TestClient e **58 de UI AppTest**; suítes E2E/carga continuam fora do pytest (Karate **15 features / 90 cenários**, UI **115 cenários**, Gatling 2 simulações). Correções aplicadas com base no diagnóstico: `addopts` do `pytest.ini` **não força mais `-n auto`/`--dist=loadfile`** (um `pytest` puro paralelizaria a integração levantando N containers PostGIS simultâneos); a **Fase 1** de `scripts/executar_testes.bat` roda apenas a camada não-integração com `-n auto`; o marker `serial` (morto — nenhum teste o usava) foi **removido**; e as métricas deste README foram **corrigidas para os valores reais medidos**. Módulos ainda abaixo da média global: `api/services/qualidade_service.py` (63%), `api/routers/analise.py` (79%) e `analysis/pipeline_analise.py` (80%) — candidatos a expansão unitária. Ver [Qualidade e Testes](#-qualidade-e-testes).
->
-> **Revisão mais recente (Data Quality Score end-to-end + medição da suíte completa):** implementado o **Data Quality Score (0-100)** das tabelas gold — módulo `validation/qualidade_dados.py` com **6 dimensões ponderadas** (Completude 25%, Unicidade 20%, Validade de schema 20%, Consistência 20%, Atualidade 10%, Cobertura temporal 5%), endpoint **`GET /qualidade/dados`** e nova aba **"Qualidade dos Dados"** no dashboard. Estado atual verificado rodando a suíte completa: **3.681 itens, todos passando, 97,66% de cobertura total** (98,32% de linhas) sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (2.897 de integração + 784 não-integração: 690 unitários, 37 de API endpoint via TestClient e 58 de UI AppTest). A suíte E2E Karate da API segue com **15 features / 90 cenários**. Ver [Qualidade e Testes](#-qualidade-e-testes) e a seção "🔌 Camada de Testes de Integração" abaixo.
->
-> **Revisão mais recente (verificada rodando a suíte de fato, commit `38a3d92`):** a cobertura de testes configurada em `pytest.ini` foi ampliada — hoje mede `analysis`, `api`, `config`, `database`, `domain`, `ingestion`, `processing`, `src` e `util` (não mais apenas `src`, `util` e `database`); só `validation/` segue sem cobertura própria. Números reais desta rodada: **391 testes coletados, 388 passando, 3 falhando, 99,18% de cobertura** (limiar mínimo 95%, atingido). As 3 falhas são um bug real e reprodutível, não um problema de ambiente — ver [Observações e Pontos de Atenção](#-observações-e-pontos-de-atenção-herdados-da-análise-técnica-do-projeto). Também confirmado nesta revisão: `.env` **não está mais rastreado pelo Git** (item antes pendente, já resolvido), e todos os modelos `xgb_residual_log_*.pkl` já possuem `_meta.json` completo (a documentação anterior afirmava o contrário).
->
-> **Implementação de item do roadmap — persistência do Prophet:** o item "persistir o modelo Prophet junto ao XGBoost em `models/`" foi implementado. `save_model_with_metadata` agora aceita um `prophet_model` opcional e salva o par como um único artefato "bundle"; `GET /previsao/crimes-contra-mulher` passa a servir por padrão a partir do bundle mais recente em disco (sem re-treinar), com fallback automático para treino quando não há artefato utilizável; um novo endpoint `POST /previsao/retrain` força o re-treino explícito. Detalhes em [Camada de Consumo (API)](#-camada-de-consumo-api--api). 16 novos testes adicionados (391 → 407 testes coletados), cobertura de `api/services/forecast_service.py` em 100%.
->
-> **Revisão mais recente:** dashboard Streamlit implementado (séries temporais com **total consolidado + RAs selecionáveis** e média móvel, mapa de calor RA × ano, ranking, previsões e exploração das tabelas gold) e bug de variável de ambiente `POSTGRES_USERNAME` vs `POSTGRES_USER` em `tests/database/test_connection.py` corrigido — **486 testes, todos passando, 99,29% de cobertura**. Ver [Dashboard Interativo](#-dashboard-interativo-streamlit--dashboard) e [Qualidade e Testes](#-qualidade-e-testes).
->
-> **Testes E2E e de carga da API:** além da suíte `pytest`, a API de consumo ganhou duas camadas de teste externas ao Python — uma suíte **E2E em Karate DSL (Gherkin/Cucumber)** com relatório **Allure** (`karate-tests/`) e uma suíte de **carga/performance em Gatling (Scala)** (`gatling-tests/`), que exercita o fluxo principal do dashboard sob rampa de usuários com asserções de taxa de sucesso (≥99%) e p95 (limite configurável). Ver [Testes E2E da API](#-testes-e2e-da-api-karate-dsl--cucumber--allure--karate-tests) e [Testes de Carga da API](#-testes-de-carga-da-api-gatling--gatling-tests).
->
-> **Revisão mais recente (aumento de cobertura):** criada a suíte `tests/validation/` — `validation/validator.py`, antes o único pacote de produção sem testes próprios (36%), agora está em 100%. Também cobertos os últimos ramos pendentes de `analysis/data_analyzer.py`, `api/main.py`, `dashboard/api_client.py`, `dashboard/app.py` e `src/main.py`. Estado atual verificado rodando a suíte: **502 testes, todos passando, 99,65% de cobertura** (todos os módulos com 100% de statements; restam apenas ramos parciais defensivos).
->
-> **Revisão mais recente (dashboard reformulado):** o painel ganhou **tema dark** (`.streamlit/config.toml` + gráficos Plotly coerentes), uma aba **Visão Geral** com métricas-resumo por indicador (cache de 10 min), filtros de tabelas não comparáveis nos seletores das abas **Séries Temporais** (idosos/desaparecidos) e **Mapa de Calor**, a aba "Idades" renomeada para **Identificação crimes** (tabela fixa `identificacao_crimes_contra_mulher_gold`) e a nova aba **Desaparecidos** com quatro gráficos de barra (sexo, faixa etária, localizados × ainda desaparecidos e RA 2020 × 2021). Estado atual verificado rodando a suíte completa: **755 testes, todos passando, 98,11% de cobertura**. Ver [Dashboard Interativo](#-dashboard-interativo-streamlit--dashboard).
->
-> **Revisão mais recente (expansão de testes e xdist):** suíte ampliada com testes E2E Karate (88 cenários), dashboard AppTest dividido em 4 arquivos para evitar resource exhaustion, pytest-xdist para execução paralela e scripts de teste revisados. Estado atual: **755 testes, todos passando, 98,11% de cobertura** (limiar mínimo 95%, atingido). Ver [Qualidade e Testes](#-qualidade-e-testes) e [Como Executar](#-como-executar-ambiente-local).
->
-> **Revisão mais recente (expansão da suíte E2E de UI):** a suíte **E2E da interface do dashboard** em `e2e-tests/` (CodeceptJS + Playwright + Cucumber (BDD) + Allure + Page Object Model) foi ampliada de **30 para 115 cenários** em **15 features**. Além de carregamento, sidebar/health check da API, navegação pelas 12 abas, sub-abas de Análises e presença dos controles (widgets) por aba, cada aba passou a ter cenários de **conteúdo e interação**: métricas/legenda da Visão Geral; indicadores, categorias, RAs, modo de análise e média móvel nas Séries Temporais; ano/ranking no Mapa de Calor; indicador e recorte temporal na Mancha Criminal; largura dos bins na Identificação; gráficos de Desaparecidos e Violência contra idosos; horizonte das Previsões; ano do ranking, limiar e avaliação do modelo na Classificação; Correlações/Granger/Zonas Quentes nas Análises; e métricas de resumo, troca de tabela e filtros (intervalo de anos e região administrativa) na aba Tabelas. Ver [Testes E2E de UI do Dashboard](#-testes-e2e-de-ui-do-dashboard-codeceptjs--playwright--cucumber--allure--e2e-tests).
+**Tecnologias:** Python 3 · Pandas · NumPy · PostgreSQL 16 + PostGIS · SQLAlchemy · psycopg2 · FastAPI · Streamlit · Plotly · Folium · GeoPandas · Prophet · XGBoost · scikit-learn · joblib · requests/BeautifulSoup · PyYAML · Docker Compose · pytest (xdist · cov · html) · Testcontainers · Karate DSL · Gatling · CodeceptJS · Playwright · Cucumber · Allure
 
-### Pipeline de Dados
-![alt text](image.png)
+Projeto que coleta, padroniza e consolida séries históricas de criminalidade do **Distrito Federal** (dados abertos da SSP-DF e população do IBGE/Wikipédia), organizando tudo em um **data lakehouse em camadas (Bronze → Silver → Gold)** com banco PostgreSQL/PostGIS. A camada Gold alimenta um **modelo híbrido Prophet + XGBoost** de previsão de séries temporais (aplicado a crimes contra a mulher por RA), análises executivas (correlações, causalidade de Granger, anomalias e zonas quentes), uma **API REST (FastAPI)** e um **dashboard interativo (Streamlit + Plotly)** — tudo coberto por testes unitários, de integração (banco real via Testcontainers), E2E de API e UI e de carga.
 
-### Arquitetura
-![alt text](image-1.png)
+## Arquitetura
 
-## 🎯 Visão Geral
+![Pipeline de Dados](image.png)
 
-O projeto coleta, padroniza e consolida séries históricas de criminalidade do Distrito Federal (fontes SSP-DF e dados populacionais do IBGE/GDF), organiza os dados em um **Data Lakehouse em camadas (Bronze → Silver → Gold)** e utiliza o resultado para treinar um modelo híbrido de previsão de séries temporais (Prophet + XGBoost) aplicado hoje a **crimes contra a mulher** por Região Administrativa (RA).
+![Arquitetura](image-1.png)
 
-O fluxo é executado localmente via scripts Python (`src/main.py`); além da camada de consumo (API + dashboard), o projeto conta com a **camada geoespacial em PostGIS** (`geoespacial/`) e com as suítes de teste E2E/carga/integração descritas nas seções deste documento.
-
-## 🧠 Diagrama de Arquitetura Lógica (estado atual)
-
-```bash
-        ┌───────────────────────────────────────────┐
-        │            Fontes de Dados Externas        │
+```
+        ┌─────────────────────────────────────────────
+        │            Fontes de Dados Externas         │
         │─────────────────────────────────────────────│
-        │ - dados.df.gov.br (SSP-DF, planilhas .xlsx) │
+        │ - dados.df.gov.br (SSP-DF, .xlsx via CKAN)  │
         │ - ftp.ibge.gov.br (população por município) │
         │ - Wikipédia (população por RA)              │
         └──────────────────┬──────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────────┐
-        │        Camada de Coleta (src/busca.py,     │
-        │        src/scraping.py, src/coleta_gdf.py) │
+                           │
+                           ▼
+        ┌─────────────────────────────────────────────┐
+        │        Camada de Coleta (src/busca.py,      │
+        │        src/scraping.py, src/coleta_gdf.py)  │
         │─────────────────────────────────────────────│
-        │ • Download via requests + rotas.yaml/       │
-        │   rotas_ibge.yaml                            │
-        │ • Extração de .zip (util/extrator_zip.py)   │
-        │ • Leitura de .xlsx → .csv                    │
-        │   (util/leitor_excel.py)                     │
+        │ • download via requests + rotas declaradas  │
+        │   (rotas.yaml / rotas_ibge.yaml / config)   │
+        │ • extração de .zip (util/extrator_zip.py)   │
+        │ • leitura de .xlsx → .csv                   │
         └──────────────────┬──────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────────┐
+                           │
+                           ▼
+        ┌────────────────────────────────────────────┐
         │   BRONZE (data/bronze)                     │
-        │   CSV/planilhas brutos, sem tratamento     │
-        └──────────────────┬──────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────────┐
+        │   arquivos brutos, sem tratamento          │
+        └──────────────────┬─────────────────────────┘
+                           │
+                           ▼
+        ┌─────────────────────────────────────────────┐
         │   Camada de Tratamento (src/tratamento_*)   │
         │─────────────────────────────────────────────│
-        │ • Padronização de nomes de RA               │
-        │   (util/padronizacao.py)                     │
-        │ • Wide→Long, normalização de colunas         │
-        │ • Validação estrutural (validation/          │
-        │   validator.py)                              │
+        │ • padronização de nomes de RA               │
+        │   (util/padronizacao.py)                    │
+        │ • conversão wide→long e normalização        │
+        │ • validação estrutural (validation/)        │
         └──────────────────┬──────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────────┐
+                           │
+                           ▼
+        ┌─────────────────────────────────────────────┐
         │   SILVER (data/silver/output)               │
-        │   CSVs tratados e padronizados               │
+        │   CSVs tratados e padronizados              │
         └──────────────────┬──────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────────┐
-        │   Banco de Dados PostgreSQL (SQLAlchemy)    │
+                           │
+                           ▼
+        ┌─────────────────────────────────────────────┐
+        │   PostgreSQL 16 + PostGIS (SQLAlchemy)      │
         │─────────────────────────────────────────────│
-        │  • PostgreSQL 16 + extensão PostGIS           │
-        │    (imagem postgis/postgis:16-3.4)            │
-        │  • Estratégia de carga: FULL REFRESH         │
-        │    (to_sql if_exists="replace")              │
-        │  • Acesso via Repository Pattern             │
-        │    (ingestion/repository_adapter.py →        │
-        │    database/repository/repository.py)        │
+        │ • imagem postgis/postgis:16-3.4             │
+        │ • carga FULL REFRESH (to_sql replace)       │
+        │ • acesso via Repository Pattern             │
+        │   (ingestion/repository_adapter.py →        │
+        │   database/repository/repository.py)        │
         └──────────────────┬──────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────────┐
+                           │
+                           ▼
+        ┌─────────────────────────────────────────────┐
         │   GOLD (src/pipeline_tabela_gold.py)        │
         │─────────────────────────────────────────────│
-        │  • PipelineStep + executor com               │
-        │    ThreadPoolExecutor, retries e timeout      │
-        │    (src/core/executor.py)                     │
-        │  • Serviços de domínio (domain/*.py)          │
-        │    consolidam e gravam tabelas *_gold          │
+        │ • PipelineStep + executor (ThreadPool→      │
+        │   com retries e timeout)                    │
+        │ • serviços de domínio (domain/*.py)         │
+        │   consolidam as tabelas *_gold              │
         └──────────────────┬──────────────────────────┘
-                            │
-                            ▼
-        ┌───────────────────────────────────────────┐
-        │   Camada de Modelagem (analysis/            │
-        │   data_analyzer.py)                          │
-        │─────────────────────────────────────────────│
-        │  • Feature engineering: lags, rolling mean,  │
-        │    trend, diff                                │
-        │  • Prophet → tendência anual                  │
-        │  • XGBoost → aprende o resíduo (log) do        │
-        │    Prophet                                    │
-        │  • Previsão híbrida com clip dinâmico,        │
-        │    decaimento temporal e suavização           │
-        │  • Modelos exportados em models/*.pkl          │
-        │    com metadados em *_meta.json                │
-        └───────────────────────────────────────────┘
+                           │
+                           ▼
+        ┌───────────────────────────────────────────────┐
+        │   Camada de Consumo                           │
+        │───────────────────────────────────────────────│
+        │ • API REST FastAPI (api/)                     │
+        │ • Dashboard Streamlit + Plotly (dashboard/)   │
+        │ • Análises executivas (analysis/)             │
+        └───────────────────────────────────────────────┘
 ```
 
-## ⚙️ Componentes Técnicos e Tecnologias (o que está implementado hoje)
+## Componentes e Tecnologias
 
-| **Camada** | **Ferramentas / Bibliotecas** | **Responsabilidade** |
-|:------------|:------------------------------|:----------------------|
-| **Coleta** | `requests`, `pandas`, `beautifulsoup4`/scraping próprio | Baixar planilhas SSP-DF, extrair `.zip`, raspar população por RA na Wikipédia |
-| **Configuração de rotas** | `rotas.yaml`, `rotas_ibge.yaml`, `config.yaml`, `config/datasets_config.py` | Descrever datasets, resources e URLs de origem sem hardcode no código |
-| **Tratamento (Bronze→Silver)** | `pandas`, funções em `src/tratamento_crimes.py` e `src/tratamento_populacional.py` | Limpeza, padronização de nomes de RA, conversão wide→long |
-| **Banco de Dados** | `PostgreSQL 16` (via Docker Compose, imagem `postgis/postgis:16-3.4`), `SQLAlchemy`, `psycopg2`, `PostGIS` | Persistência relacional com extensão espacial **PostGIS** (malha geoespacial de 1 km por célula; DDL opcional em `geoespacial/postgis.py`); carga full refresh |
-| **Camada Gold** | Domain Services (`domain/*.py`) + `PipelineStep`/`executor.py` (paralelismo com `ThreadPoolExecutor`, retry e timeout configuráveis) | Consolidar, validar chaves e gravar tabelas `*_gold` |
-| **Modelagem Preditiva** | `scikit-learn`, `XGBoost`, `Prophet`, `joblib` | Modelo híbrido Prophet + resíduo XGBoost para prever `crimes_contra_mulher` 5 anos à frente |
-| **Testes** | `pytest`, `pytest-cov`, `pytest-html`, `pytest-xdist`, `testcontainers` | **3.681 itens coletados, todos passando — 97,66% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Composição: 2.897 itens de integração (Postgres/PostGIS real via Testcontainers) + 784 não-integração (690 unitários, 37 de API endpoint via TestClient e 58 de UI AppTest). O paralelismo **não está mais no `addopts`** — um `pytest` puro roda tudo em série e evita levantar N containers PostGIS simultâneos; os scripts passam `-n auto --dist=loadfile` **só para a camada não-integração** e `-n 0` para a integração. |
-| **Testes E2E / Carga da API** | `Karate DSL` (Cucumber/Allure), `Gatling` (Scala/Maven) | Suíte E2E dos endpoints da API em `karate-tests/` (**90 cenários em 15 features**) e teste de carga com rampa de usuários e asserções de sucesso/p95 em `gatling-tests/` (ver seções próprias) |
-| **Ambiente / Infra** | `Docker Compose` (container `postgis/postgis:16-3.4` — extensão PostGIS embutida), `.env` para credenciais | Ambiente local reprodutível para o banco |
+| Camada | Tecnologias | Responsabilidade |
+|:---|:---|:---|
+| Coleta | `requests`, `pandas`, `beautifulsoup4`, `util/extrator_zip.py`, `util/leitor_excel.py` | Baixar planilhas SSP-DF, extrair ZIP, raspar população por RA |
+| Configuração de fontes | `rotas.yaml`, `rotas_ibge.yaml`, `config.yaml`, `config/datasets_config.py`, `util/config_loader.py` | Catálogo declarativo de datasets/URLs (sem hardcode) |
+| ETL (Bronze → Silver) | `pandas`, `src/tratamento_crimes.py`, `src/tratamento_populacional.py`, `src/pipeline_busca_transformacao.py` | Limpeza, padronização, wide→long; orquestração com `PipelineStep`s paralelos |
+| Banco de Dados | PostgreSQL 16 + **PostGIS** (`postgis/postgis:16-3.4`), `SQLAlchemy`, `psycopg2` | Persistência relacional + espacial (malha de células, DDL opcional em `geoespacial/postgis.py`) |
+| Camada Gold | `domain/*.py` + `src/core/executor.py` (paralelismo, retry, timeout) | Consolidar, validar e gravar as tabelas `*_gold` |
+| Modelagem | `scikit-learn`, `XGBoost`, `Prophet`, `joblib`, `statsmodels` | Modelo híbrido Prophet + resíduo XGBoost; regressão logística; correlação/Granger/anomalias |
+| Análise geoespacial | `pandas`, `numpy`, `GeoPandas`, `Folium` | Malha regular de células, mapa de calor, export GeoPackage |
+| API | `FastAPI`, `uvicorn`, `Pydantic`, `httpx` | Exposição das tabelas gold, previsão, classificação, análises e qualidade |
+| Dashboard | `Streamlit`, `Plotly` | Painel interativo com 13 abas (tema dark) |
+| Testes | `pytest` + `pytest-cov` + `pytest-html` + `pytest-xdist` + `testcontainers` | Suíte de 3.681 itens com cobertura ≥ 95% (ver seção Qualidade) |
+| E2E / Carga / UI | `Karate DSL` (Cucumber/Allure), `Gatling` (Scala/Maven), `CodeceptJS` + `Playwright` (Cucumber/Allure) | E2E da API, carga/performance e E2E de UI do dashboard |
+| Infra | `Docker Compose` (PostGIS + pgAdmin), `.env` | Ambiente local reprodutível |
 
-### 🧩 Interações Principais (fluxo real)
+## Pipeline de Dados (Bronze → Silver → Gold)
 
-- **Coleta → Bronze:** `src/busca.py`, `src/scraping.py` e `util/extrator_zip.py` baixam e descompactam as planilhas originais em `data/bronze`.
-- **Bronze → Silver:** `src/pipeline_busca_transformacao.py` orquestra as fases de coleta/população/planilhas em sequência (dependentes) e depois executa os tratamentos independentes de `src/tratamento_crimes.py` em paralelo, via `PipelineStep`s declarativos + `executar_pipeline`, gerando CSVs padronizados em `data/silver/output`.
-- **Silver → Postgres → Gold:** `database/load_csvs.py` carrega os CSVs tratados no Postgres; `src/pipeline_tabela_gold.py` executa os `PipelineStep`s em paralelo, cada um chamando um serviço de domínio (`domain/*.py`) que lê tabelas via `Repository.load`, aplica regras de negócio (padronização de nomes de RA, merges seguros com validação de chaves) e grava o resultado com `Repository.save` (estratégia full refresh).
-- **Gold → Modelagem:** `analysis/data_analyzer.py` lê a tabela `violencia_contra_mulher_gold`, gera features temporais, treina Prophet (tendência) + XGBoost (resíduo em log) e produz uma previsão de 5 anos, salvando o modelo em `models/`.
-- **Execução:** `src/main.py` é o ponto de entrada único; hoje executa as três etapas em sequência — `busca_transformacao_dados()` (coleta+tratamento), `criar_tabela_gold(max_workers=6)` (camada Gold) e `executar_pipeline()` (modelagem). Todas as três estão cobertas por teste (ver seção de Qualidade e Testes).
+O fluxo é orquestrado por `src/main.py`, que executa as três fases em sequência: `busca_transformacao_dados()` (coleta + tratamento), `criar_tabela_gold(max_workers=6)` (camada Gold) e `executar_pipeline()` (modelagem).
 
-## 📁 Estrutura de Diretórios (resumo)
+1. **Coleta → Bronze:** `src/busca.py`, `src/scraping.py` e `util/extrator_zip.py` baixam as planilhas originais para `data/bronze`. As fontes são declaradas em `rotas.yaml` (**18 rotas de criminalidade**: 17 do CKAN de `dados.df.gov.br` + URL direta do feminicídio da SSP) e `rotas_ibge.yaml` (**população anual/IBGE**), carregadas por `util/config_loader.py` (com override por `.env`).
+2. **Bronze → Silver:** `src/pipeline_busca_transformacao.py` preserva em sequência as fases com dependência (coleta → população → planilhas → carga) e executa os tratamentos independentes em paralelo (via `PipelineStep` + `executar_pipeline`, com retry e timeout), gerando CSVs padronizados em `data/silver/output`.
+3. **Silver → Postgres → Gold:** `database/load_csvs.py` carrega os CSVs tratados; `src/pipeline_tabela_gold.py` executa os `PipelineStep`s (paralelo), cada um chamando um serviço de domínio (`domain/*.py`) que lê tabelas via `Repository.load`, aplica regras de negócio (padronização de RAs via `util/padronizacao.MAPEAMENTO_REGIOES_ADMINISTRATIVAS`, merges com validação de chaves) e grava com `Repository.save` (full refresh, idempotente).
+4. **Validação e qualidade:** schemas declarativos silver/gold em `validation/schema.py` e `validation/esquemas.py`, aplicados automaticamente pelo hook `PipelineStep.validacao`; Data Quality Score em `validation/qualidade_dados.py`.
 
-| Diretório | Conteúdo |
-|:---|:---|
-| `src/` | Coleta, scraping, tratamento de crimes/população, orquestração (`main.py`, `pipeline_*`, `core/`) |
-| `domain/` | Serviços de domínio por tema (violência contra a mulher, idosos, crimes letais, patrimoniais, discriminatórios, desaparecidos) |
-| `database/` | Conexão SQLAlchemy, repositório de acesso ao Postgres, carga de CSVs |
-| `ingestion/` | Adaptador simples (`Repository`) entre domínio e `database/repository` |
-| `geoespacial/` | Malha regular de células por km (pandas/numpy), centróides aproximados das RAs e DDL PostGIS opcional (`postgis.py`) |
-| `processing/` | Transformações genéricas de datasets e pós-processamento |
-| `validation/` | Validação de chaves e integridade estrutural antes dos merges |
-| `analysis/` | Pipeline de modelagem preditiva (Prophet + XGBoost) |
-| `util/` | Utilitários (leitura de Excel, extração de zip, logging, padronização de nomes de RA) |
-| `config/` | Configuração de datasets (`datasets_config.py`) e paths |
-| `models/` | Modelos treinados (`.pkl`) e metadados (`_meta.json`) de cada execução |
-| `data/` | Camadas `bronze/`, `silver/`, `gold/` do lakehouse local (gerada em runtime; ignorada pelo Git, ver `.gitignore`) |
-| `tests/` | Suíte de testes (`analysis`, `api`, `arquivos`, `config`, `core`, `dados`, `database`, `dashboard`, `domain`, `geoespacial`, `ingestion`, `integracao`, `pipeline`, `processing`, `rotas`, `scrapings`, `setup`, `util`, `validation`) |
-| `karate-tests/` | Testes E2E da API (Karate DSL + Cucumber + Allure) — ver seção própria |
-| `gatling-tests/` | Testes de carga/performance da API (Gatling, Scala/Maven) — ver seção própria |
-| `e2e-tests/` | Testes E2E da UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure + POM; **115 cenários** em 15 features) — ver seção própria |
-| `scripts/` | Scripts auxiliares: `executar_testes.bat` (orquestra Fase 1: pytest rápido com xdist → Fase 2: pytest-cov com coverage → relatório executivo → abre relatórios no navegador), `testar-com-coverage.bat` (pytest-cov com gate de 95%), `executar_testes.ps1` (wrapper PowerShell) e `gerar_relatorio_cobertura.py` (relatório executivo de cobertura em `test_report/cobertura-executiva.html`) |
-| `docker-compose.yaml` | Serviço `postgis/postgis:16-3.4` (Postgres 16 + extensão PostGIS embutida) para ambiente local |
-| `requirements.txt` | Dependências do projeto (freeze do ambiente de desenvolvimento — ver nota na seção "Como Executar") |
+## Tabelas Gold
 
-> A antiga pasta `docs/` (com `projeto.md`, `image.png` e `image-1.png`) foi removida do repositório; as imagens de arquitetura hoje ficam na raiz (`image.png`, `image-1.png`) e este `README.md` é a documentação central do projeto.
-
-## 🗃️ Tabelas Gold Geradas
-
-| Tabela | Serviço responsável |
+| Tabela | Serviço |
 |:---|:---|
 | `violencia_contra_mulher_gold` | `ViolenciaMulherService.consolidar` |
 | `identificacao_crimes_contra_mulher_gold` | `IdentificacaoCrimesService.carregar` |
@@ -183,290 +121,201 @@ O fluxo é executado localmente via scripts Python (`src/main.py`); além da cam
 | `crimes_discriminatorios_gold` | `CrimesDiscriminatoriosService.consolidar` |
 | `desaparecidos_idade_sexo_gold` / `_localizados_gold` / `_regiao_gold` | `DesaparecimentosService` |
 
-## 🤖 Modelagem Preditiva (`analysis/data_analyzer.py`)
+## Modelagem Preditiva (`analysis/data_analyzer.py`)
 
-- **Alvo atual:** `crimes_contra_mulher` (contagem anual por RA, agregado no nível DF na tabela gold consumida).
-- **Features:** `lag_1`, `lag_2`, `rolling_mean_2`, `rolling_mean_3`, `taxa_feminicidio`, `feminicidio_lag_1`, `trend`, `ano_num`, `diff_1`.
-- **Abordagem híbrida:** Prophet modela a tendência/sazonalidade anual; um `XGBRegressor` aprende o resíduo em escala logarítmica entre o valor real e o previsto pelo Prophet.
-- **Pós-processamento da previsão:** clipping dinâmico do resíduo pelos percentis 5%/95%, decaimento de 15% por ano projetado (mínimo de 40% do efeito) e suavização exponencial simples entre anos consecutivos.
-- **Horizonte:** 5 anos à frente, com atualização recursiva das features (lags, médias móveis) a cada passo.
-- **Persistência:** cada execução do pipeline batch (`executar_pipeline`) gera um novo arquivo `models/xgb_residual_log_<timestamp>.pkl`, salvo como **bundle** — um único artefato contendo tanto o `XGBRegressor` do resíduo quanto o `Prophet` correspondente (dict `{xgb_model, prophet_model}` serializado via `joblib`) — acompanhado do seu `_meta.json` (métricas `mae`/`rmse`, hiperparâmetros, features, `dataset_info` com a tabela/período de origem, `artifact_format: "bundle"` e `extra` com os limites de clipping do resíduo e o horizonte de previsão). Isso permite que a API reconstrua a previsão híbrida completa a partir do artefato salvo, sem re-treinar (ver seção da API). Os três modelos gerados antes desta funcionalidade continuam em disco no formato antigo (`artifact_format: "legacy"`, apenas o XGBoost) e seguem legíveis via `carregar_modelo`, mas não são usados para servir previsão por faltar o Prophet.
+- **Alvo:** `crimes_contra_mulher` — contagem anual por RA (consultada via `violencia_contra_mulher_gold`).
+- **Features (9):** `lag_1`, `lag_2`, `rolling_mean_2`, `rolling_mean_3`, `taxa_feminicidio`, `feminicidio_lag_1`, `trend`, `ano_num`, `diff_1` (versão de features `VERSAO_FEATURES=2`).
+- **Abordagem híbrida:** Prophet modela a tendência anual; um `XGBRegressor` aprende o resíduo em escala logarítmica (`log1p`) entre o valor real e o previsto pelo Prophet.
+- **Pós-processamento:** clipping dinâmico do resíduo pelos percentis 5%/95%, decaimento de 15% ao ano (mínimo de 40% do efeito) e suavização exponencial (0,7/0,3) entre anos consecutivos. Reconstrução recursiva das features a cada passo.
+- **Horizonte:** padrão de 5 anos pela API `GET /previsao/crimes-contra-mulher` (`horizonte_anos` de 1 a 10).
+- **Persistência:** cada execução gera um **bundle** `models/xgb_residual_log_<timestamp>.pkl` — dict `{xgb_model, prophet_model}` serializado com `joblib` via `save_model_with_metadata` — acompanhado de `_meta.json` (métricas MAE/RMSE, hiperparâmetros, features, `dataset_info`, `artifact_format: "bundle"`, limites de clipping e horizonte). A API serve a previsão a partir do artefato sem re-treinar.
 
-## 📈 Análises Executivas (`analysis/`)
+## Análises Executivas (`analysis/`)
 
-Camada de modelagem e análise que complementa a predição pontual do `data_analyzer`, respondendo **quais crimes se relacionam**, **onde** concentram e **quando** o padrão muda. Tudo orquestrado por um único entrypoint:
-
-```bash
-python -m analysis.pipeline_analise
-# Saída em data/analises/: relatorio_executivo.md + .html e mapa_calor_roubo_pedestre.html
-```
+Execução única via `python -m analysis.pipeline_analise`, com saída em `data/analises/` (`relatorio_executivo.md/.html` + `mapa_calor_roubo_pedestre.html`):
 
 | Módulo | O que faz |
 |:---|:---|
-| `analysis/correlacoes.py` | Matriz ano × indicador (12 tipos de crime das tabelas gold), correlações Pearson/Spearman, **causalidade de Granger** pairwise (com salvaguardas para séries curtas) e correlação **espacial entre tabelas gold** (violência contra idosos × patrimoniais por RA). |
-| `analysis/anomalias.py` | Detecção de outliers com **Isolation Forest** sobre features causais (lag, diferença, média móvel) — na série mensal de violência contra idosos e no painel RA × ano dos crimes patrimoniais. |
-| `analysis/mapa.py` | **Mapa de calor Folium** distribuindo os indicadores por RA na malha regular de células do `geoespacial.malha` (+ export GeoPackage via GeoPandas). |
-| `analysis/relatorio.py` | Relatório executivo em **Markdown + HTML autocontido** (CSS embutido, sem dependências externas; imprimível em PDF pelo navegador) com tabelas-síntese e insights textuais gerados a partir dos resultados. |
+| `analysis/correlacoes.py` | Matriz ano × indicador (12 crimes), correlações Pearson/Spearman, causalidade de **Granger** (salvaguardas p/ séries curtas) e correlação espacial entre tabelas gold |
+| `analysis/anomalias.py` | **Isolation Forest** sobre features causais (lag, diferença, média móvel) na série mensal de idosos e no painel RA × ano patrimoniais |
+| `analysis/mapa.py` | **Mapa de calor Folium** sobre a malha de células do `geoespacial.malha` + export GeoPackage |
+| `analysis/relatorio.py` | Relatório executivo Markdown + **HTML autocontido** (imprimível em PDF) |
+| `analysis/logistic_regression.py` | Regressão Logística de criminalidade letal por RA/ano (alta vs baixa) |
 
-Resultados típicos com os dados atuais: correlação forte entre famílias patrimoniais e letais (tendência comum domina séries anuais curtas); Granger aponta `roubo_comercio` antecedendo roubo no transporte/pedestre/veículo; Spearman de **+0,63 (p=0,001)** entre violência contra idosos e crimes patrimoniais no cross-section por RA (2016); anomalias concentradas em 2020 (efeito pandemia).
+Resultados típicos: correlação forte entre patrimoniais e letais; Granger aponta `roubo_comercio` antecedendo roubo no transporte/pedestre/veículo; Spearman **+0,63 (p=0,001)** entre violência contra idosos e patrimoniais por RA (2016); anomalias concentradas em 2020.
 
-> 🗺️ A camada geoespacial opcional (`geoespacial/postgis.py`) sobe DDL de malha no banco quando a extensão PostGIS estiver disponível — o `docker-compose.yaml` já usa a imagem `postgis/postgis:16-3.4`, que a traz embutida.
+## Camada de Consumo — API REST (`api/`)
 
-## ✅ Qualidade e Testes
-
-- **3.681 itens** coletados (`pytest`), **todos passando** — **97,66% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo configurado: 95%, `--cov-fail-under=95`, atingido). Composição da pirâmide: **2.897 itens de integração** (78,7%) + **784 não-integração** (690 unitários, 37 de API endpoint via TestClient e 58 de UI AppTest).
-- **Data Quality Score (0-100):** módulo `validation/qualidade_dados.py` calcula, por tabela gold, uma nota consolidando **6 dimensões ponderadas** — Completude (25%), Unicidade (20%), Validade de schema (20%), Consistência (20%), Atualidade (10%, frescor do `inserido_em` com janela decrescente de 30–365 dias) e Cobertura temporal (5%, anos esperados 2015–2024). Dimensões não aplicáveis (ex.: tabela sem chave ou sem coluna de ano) são excluídas e os pesos redistribuídos; tabelas **não materializadas entram com nota 0**. Consistência valida RAs contra o domínio canônico (união das RAs das tabelas + `util.padronizacao`), anos dentro do período e contagens não negativas. O resultado é exposto em **`GET /qualidade/dados`** (`api/services/qualidade_service.py` com cache TTL de 300s e `503` quando o banco está indisponível) e renderizado na aba **"Qualidade dos Dados"** do dashboard (score geral, média por dimensão e detalhe por tabela com problemas/avisos).
-- Relatórios gerados automaticamente em `test_report/`: relatório de testes HTML (`relatorio-testes.html`) + JUnit (`junit.xml`), cobertura técnica (`coverage/index.html` e `coverage.xml`) e **relatório executivo de cobertura** (`cobertura-executiva.html`, gerado por `scripts/gerar_relatorio_cobertura.py` a partir do `.coverage`). A saída completa do pytest pode ser persistida em `logs/testes.log` via `scripts/executar_testes.bat`, que orquestra o fluxo completo (testes rápidos com xdist → testes com coverage → relatório executivo → abertura dos relatórios no navegador).
-- Suíte organizada por domínio: `tests/analysis`, `tests/api`, `tests/arquivos`, `tests/config`, `tests/core`, `tests/dados`, `tests/database`, `tests/dashboard`, `tests/domain`, `tests/geoespacial`, `tests/ingestion`, `tests/integracao`, `tests/pipeline`, `tests/processing`, `tests/rotas`, `tests/scrapings`, `tests/setup`, `tests/util`, `tests/validation`.
-
-### 🔌 Camada de Testes de Integração (Postgres/PostGIS real — Testcontainers)
-
-Suíte em `tests/integracao/` que roda contra um **PostgreSQL 16 real com PostGIS** (`postgis/postgis:16-3.4`) levantado por **Testcontainers** (exige Docker, derruba no teardown) — sem mocks de banco. Os itens são marcados com `integracao` (via `pytestmark` e reconhecidos pelo marker `integracao` declarado em `pytest.ini`).
-
-- **Cobertura funcional:** repositório (insert, full refresh, análise/resumo, tabelas vazias, nulos, ordenação, UTC, tipos), pipeline gold (persistência fiel, reescrita, resumo pós-reescrita), API `/gold` (resumo/dados/paginação/404/503/filtros por ano e RA — TestClient + banco real) e **geoespacial**: malha de **2.585 células de 1 km** sobre o DF (relação `ST_Contains` célula ↔ ocorrência) na tabela `malha_celula_1km`.
-- **Dados:** fixtures fiéis aos schemas gold em `tests/integracao/dados_gold.py`; `tests/integracao/conftest.py` injeta as variáveis de ambiente (`_CHAVES_AMBIENTE`) e zera os singletons do `obter_engine()`.
-- **Execução:** a suíte não-integração roda (sem Docker) com `pytest -m "not integracao" -n auto --dist=loadfile` (paralela via pytest-xdist); a integração roda serial com `pytest tests/integracao -n 0` (~4 min, um container por worker). O `-n`/`--dist` são passados explicitamente porque o `addopts` do `pytest.ini` não força mais paralelismo (ver nota na tabela de componentes). Juntas: **3.681 itens, todos passando** (verificação completa com cobertura em ~9 min via `scripts/testar-com-coverage.bat`).
-
-### ✅ Bug de variável de ambiente em `test_connection.py` (resolvido)
-
-As 3 falhas em `tests/database/test_connection.py` (`test_obter_engine_sucesso`, `test_obter_engine_erro_sqlalchemy`, `test_logs_de_criacao_engine`) eram um **bug reprodutível de nome de variável**: a fixture `env_valido` definia a variável de ambiente como `POSTGRES_USERNAME`, mas `database/connection.py::obter_engine` lê `POSTGRES_USER` (sem sufixo). Como a variável esperada nunca era encontrada, `obter_engine()` levantava `EnvironmentError`, mesmo com a fixture "válida" em uso — e as 3 falhas só não apareciam em máquinas com `.env` presente. **Corrigido:** a fixture e o teste de variáveis incompletas agora usam `POSTGRES_USER` (nome canônico, igual ao `.env.example` e ao código de produção).
-
-### 🔧 Histórico da retomada de cobertura (desta rodada de QA)
-
-A suíte estava documentada como "195 testes, 0 falhas, 99% de cobertura", mas ao rodar de fato revelou-se desatualizada: 16 falhas, 1 arquivo de teste que nem coletava (import quebrado) e cobertura real de ~56%. O trabalho de correção revelou também **bugs reais no código**, não só gaps de teste:
-
-| Bug encontrado | Onde | Causa raiz | Status |
-|:---|:---|:---|:---|
-| `.gitignore` não ignorava `.env` | raiz do projeto | regra `.env/` (barra final = diretório) em vez de `.env` (arquivo) | **Parcialmente corrigido:** a regra em `.gitignore` já foi ajustada para `.env` (commit `ade0c3d`), mas o arquivo `.env` **continua rastreado pelo Git** (já estava commitado antes do ajuste, e alterar o `.gitignore` não desfaz isso). Ainda é necessário `git rm --cached .env` + commit, e rotacionar qualquer credencial que já tenha sido exposta no histórico |
-| Arquivos `octet-stream` viravam `.bin` em vez de `.zip` | `util/arquivos.py::detectar_extensao` | mapeamento de Content-Type não tratava esse tipo — zips nunca eram descompactados | **Corrigido** |
-| `filtrar_distrito_federal` parava de reconhecer colunas de texto | `util/leitor_excel.py` | `dtype == object` não bate mais no pandas ≥ 3.0 (novo dtype nativo `str`) | **Corrigido** (`pd.api.types.is_string_dtype`) |
-| Busca de header quebrava com células vazias | 9 funções em `src/tratamento_crimes.py` | `row.astype(str)` não converte `NaN` quando a coluna já é dtype `str` (pandas ≥ 3.0) | **Corrigido** (`row.fillna("").astype(str)`) |
-| Teste órfão de refactor anterior | `tests/pipeline/test_pipeline.py` | importava `main()` de um módulo (`src/pipeline.py`) que não existe mais | **Corrigido/reescrito** |
-| Dependência não declarada | `statsmodels` (usado em `tratamento_populacional.py`) | ausente da lista de dependências conhecidas | Documentado abaixo |
-| Código morto/inatingível | `tratar_racismo` em `src/tratamento_crimes.py` | checagem de "coluna 2024 não encontrada" nunca podia falhar, dado o filtro anterior | **Removido** |
-
-### 🧹 Limpeza realizada
-
-Havia um arquivo duplicado em `tests/core/test_tratamento_crimes_basico1.py` com 19 testes idênticos aos de `tests/core/test_tratamento_crimes_basico.py` (cópia acidental durante o desenvolvimento, gerando 322 execuções em vez de 303). O arquivo foi removido; a contagem de 303 testes acima já reflete essa limpeza.
-
-## 🚀 Como Executar (ambiente local)
-
-```bash
-# 1. Subir o Postgres local (imagem postgis/postgis:16-3.4 — extensão PostGIS embutida)
-docker compose up -d
-
-# 2. Configurar variáveis de ambiente (.env) com as credenciais do banco
-
-# 3. Instalar dependências em um ambiente virtual
-python -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-
-# 4. Rodar o pipeline (editar src/main.py para habilitar as etapas desejadas)
-python -m src.main
-
-# 5. Gerar as análises executivas (correlações, anomalias, mapa e relatório)
-python -m analysis.pipeline_analise
-# Saída em data/analises/: relatorio_executivo.md/.html + mapa_calor_roubo_pedestre.html
-
-# 6. Rodar a suíte de testes
-pytest -m "not integracao" -n auto  # suíte não-integração (paralela, não requer Docker)
-pytest tests/integracao -n 0        # integração: Postgres/PostGIS real via Testcontainers (requer Docker; ~4 min)
-pytest --cov                        # com cobertura (pytest-cov, --cov-fail-under=95)
-
-# 6b. Script completo (Windows): testes + coverage + relatórios
-scripts\executar_testes.bat
-
-# 7. Subir a API (camada de consumo)
-uvicorn api.main:app --reload --port 8000
-# Documentação interativa (Swagger): http://localhost:8000/docs
-
-# 8. Abrir o dashboard interativo (requer a API do passo 7 no ar)
-streamlit run dashboard/app.py
-# Acesse em: http://localhost:8501
-
-# 9. Testes E2E (Karate) e de carga (Gatling) da API — requerem a API do passo 7 no ar
-cd karate-tests && mvn test                # E2E (relatório Allure em target/allure-results)
-cd ../gatling-tests && mvn gatling:test    # carga (relatório em target/gatling/<simulacao>/index.html)
-```
-
-> ✅ **Atualizado nesta revisão:** o `requirements.txt` já é um manifesto **curado** — só dependências de execução (`pandas`, `numpy`, `sqlalchemy`, `psycopg2-binary`, `python-dotenv`, `xgboost`, `prophet`, `scikit-learn`, `statsmodels`, `joblib`, `requests`, `openpyxl`/`xlrd`, `pyyaml`, `beautifulsoup4`, `fastapi`, `uvicorn`, `streamlit`, `plotly`, `folium`/`geopandas`), organizado por seção. Ferramentas de ambiente de desenvolvimento/notebook (`jupyter`, `matplotlib`, `shap`, `docker`, `testcontainers`, `pywin32`/`pywinpty` — este último específico de Windows) já estão isoladas em `requirements-dev.txt`, que não é necessário para rodar o projeto em produção.
-
-## 🌐 Camada de Consumo (API — `api/`)
-
-Uma API REST em **FastAPI** expõe as tabelas gold e o modelo preditivo sem alterar o pipeline de coleta/tratamento/modelagem existente — ela apenas reaproveita `ingestion/repository_adapter.py`, `database/repository/repository.py` e `analysis/data_analyzer.py`.
+API **FastAPI v1.1.0** que reaproveita `ingestion/repository_adapter.py`, `database/repository/repository.py` e `analysis/data_analyzer.py`:
 
 ```
 api/
 ├── main.py                      # app FastAPI + endpoint /health
-├── config.py                    # catálogo de tabelas gold expostas
-├── schemas.py                   # contratos Pydantic de entrada/saída
+├── config.py                    # catálogo declarativo das tabelas gold expostas
+├── schemas.py                   # contratos Pydantic
 ├── routers/
 │   ├── gold.py                  # /gold/*
 │   ├── previsao.py              # /previsao/*
 │   ├── classificacao.py         # /classificacao/*
-│   └── analise.py               # /analise/*
+│   ├── analise.py               # /analise/*
+│   └── qualidade.py             # /qualidade/*
 └── services/
     ├── gold_service.py          # paginação, filtros, resumo estatístico
-    ├── forecast_service.py      # treina/serve o modelo Prophet + XGBoost
-    ├── classificacao_service.py # Regressão Logística com cache e artefato
-    └── analise_service.py       # correlações, Granger, anomalias e zonas quentes
+    ├── forecast_service.py      # serve/treina o par Prophet + XGBoost
+    ├── classificacao_service.py # Regressão Logística (cache + artefato)
+    ├── analise_service.py       # correlações, Granger, anomalias, zonas quentes
+    └── qualidade_service.py     # Data Quality Score (cache TTL 300s)
 ```
 
-**Endpoints principais:**
+### Endpoints principais
 
 | Método | Rota | Descrição |
 |---|---|---|
 | GET | `/health` | Status da API e da conexão com o Postgres |
-| GET | `/gold/tabelas` | Catálogo de tabelas gold conhecidas (e se já existem no banco) |
+| GET | `/gold/tabelas` | Catálogo das tabelas gold conhecidas (e se existem no banco) |
 | GET | `/gold/{tabela}/resumo` | Estatísticas descritivas (linhas, colunas, nulos) |
-| GET | `/gold/{tabela}/dados` | Registros paginados, com filtros `ano_min`, `ano_max`, `regiao_administrativa` |
-| GET | `/previsao/crimes-contra-mulher` | Previsão híbrida Prophet+XGBoost, servida por padrão a partir do artefato persistido (`horizonte_anos`, `usar_cache`, `persistir_modelo`) |
-| POST | `/previsao/retrain` | Força um novo treino do par Prophet+XGBoost e persiste o bundle resultante (`horizonte_anos`) |
-| GET | `/previsao/modelos` | Lista os modelos já persistidos em `models/*_meta.json` (inclui o campo `formato_artefato`: `bundle` ou `legacy`) |
-| GET | `/classificacao/criminalidade-letal` | Classificação de cada RA/ano como alta/baixa criminalidade letal por Regressão Logística (`usar_cache`), com métricas, odds ratios, matriz de confusão e probabilidade por RA |
-| POST | `/classificacao/retrain` | Força o re-treino da Regressão Logística a partir das tabelas gold mais recentes e persiste o novo artefato em `models/` |
-| GET | `/analise/correlacoes` | Matriz de correlação multivariada entre os indicadores gold (total DF), série histórica ano × indicador, pares destaque e insights textuais (`metodo`: pearson/spearman, `top_n`) |
-| GET | `/analise/granger` | Causalidade de Granger pairwise entre os indicadores anuais — leitura exploratória para séries curtas (`max_lag`, `apenas_significantes`, `limite`) |
-| GET | `/analise/anomalias` | Pontos anômalos do Isolation Forest no painel RA × ano (roubo a pedestre) e na série mensal de violência contra idosos, do mais extremo ao menos extremo (`limite`) |
-| GET | `/analise/zonas-quentes` | Células da malha geoespacial com mais ocorrências patrimoniais no último ano disponível (`tamanho_celula_km`, `top_n`) |
-| GET | `/qualidade/dados` | **Data Quality Score (0-100)** do catálogo gold: nota geral e por tabela, com as 6 dimensões ponderadas (completude, unicidade, validade de schema, consistência, atualidade e cobertura temporal), problemas e avisos de cada tabela |
+| GET | `/gold/{tabela}/dados` | Registros paginados com filtros `ano_min`, `ano_max`, `regiao_administrativa` |
+| GET | `/previsao/crimes-contra-mulher` | Previsão híbrida a partir do artefato persistido (`horizonte_anos`, `usar_cache`, `persistir_modelo`) |
+| POST | `/previsao/retrain` | Force novo treino Prophet+XGBoost e persiste o bundle |
+| GET | `/previsao/modelos` | Lista os modelos em `models/*_meta.json` (`formato_artefato`: bundle/legacy) |
+| GET | `/classificacao/criminalidade-letal` | Classificação alta/baixa por RA/ano (probabilidade, odds ratios, matriz, CV ROC-AUC) |
+| POST | `/classificacao/retrain` | Re-treina e persiste o artefato de classificação |
+| GET | `/analise/correlacoes` | Matriz de correlação, pares destaque e insights (`metodo`, `top_n`) |
+| GET | `/analise/granger` | Causalidade de Granger pairwise (`max_lag`, `apenas_significantes`, `limite`) |
+| GET | `/analise/anomalias` | Anomalias Isolation Forest (painel patrimoniais + série idosos) |
+| GET | `/analise/zonas-quentes` | Células da malha com mais ocorrências no último ano (`tamanho_celula_km`, `top_n`) |
+| GET | `/qualidade/dados` | Data Quality Score (0–100) do catálogo gold por tabela |
 
-Os endpoints `/analise/*` calculam sobre as tabelas gold com **cache em memória de 30 min** (o treino do Isolation Forest por RA é caro — ~10 s — então chamadas idênticas dentro da janela são servidas sem recomputar) e retornam **503** quando as tabelas necessárias não estão materializadas.
+- Endpoints `/analise/*` calculam sobre as tabelas gold com **cache em memória de 30 min** (treino do Isolation Forest por RA custa ~10 s) e retornam **503** quando as tabelas necessárias não estão materializadas.
+- **Serving do bundle:** `GET /previsao/crimes-contra-mulher` primeiro procura o bundle mais recente (`localizar_ultimo_modelo_bundle`) e serve direto do artefato (`fonte_modelo: "artefato"`); sem bundle utilizável, treina sob demanda (`fonte_modelo: "retreino"`). `POST /previsao/retrain` ignora cache e artefato e sempre persiste.
+- Artefatos antigos (`artifact_format: "legacy"`, apenas XGBoost) continuam legíveis por `carregar_modelo`, mas não servem previsão (sem Prophet).
 
-**Persistência do par Prophet+XGBoost (bundle):** `analysis/data_analyzer.py::save_model_with_metadata` aceita um `prophet_model` opcional — quando informado, salva `{xgb_model, prophet_model}` como um único artefato `.pkl` (formato `"bundle"`, registrado em `artifact_format` no `_meta.json`, junto dos `residual_bounds` necessários para prever sem re-treinar). O pipeline batch (`analysis/data_analyzer.py::executar_pipeline`) já salva nesse formato. Artefatos antigos, com apenas o XGBoost (`artifact_format: "legacy"`), continuam podendo ser lidos por `carregar_modelo`, mas não são usados para servir previsão (falta o Prophet).
+## Dashboard Interativo (`dashboard/`)
 
-**Estratégia de serving da API:** `GET /previsao/crimes-contra-mulher` tenta primeiro `analysis.data_analyzer.localizar_ultimo_modelo_bundle` para achar o bundle mais recente em `models/` e servir a previsão diretamente a partir dele (`fonte_modelo: "artefato"` na resposta, sem treinar nada). Se ainda não existir nenhum bundle utilizável (primeira execução, artefato corrompido ou metadados incompletos), a API treina o par Prophet+XGBoost sob demanda a partir da tabela `violencia_contra_mulher_gold` mais recente (`fonte_modelo: "retreino"`); se `persistir_modelo=true`, esse novo treino já é salvo como bundle, disponível para a próxima chamada. Para forçar um novo treino mesmo com um bundle já disponível (ex.: dados gold atualizados), use `POST /previsao/retrain`, que ignora o cache e qualquer artefato existente, treina do zero e sempre persiste o resultado. Um cache em memória de 30 min (`usar_cache`) evita repetir trabalho — seja servindo do artefato, seja re-treinando — a cada requisição idêntica.
+Painel **Streamlit** com tema dark (`.streamlit/config.toml`) que consome a API e plota com **Plotly** (`plotly_dark`). **13 abas**: **Visão Geral**, **Séries Temporais**, **Mapa de Calor**, **Mancha Criminal**, **Identificação crimes**, **Desaparecidos**, **Violência contra idosos**, **Previsões**, **Classificação**, **Análises**, **Resumo Geral**, **Tabelas** e **Qualidade dos Dados**.
 
-Testes: `tests/api/` (**95 itens**, cobrindo services e endpoints via `TestClient`, com mocks do banco/modelo — não requer Postgres nem treinar o modelo de verdade). Os endpoints `/gold/` também são exercitados contra banco real na camada de integração (127 itens em `tests/integracao/`). Complementado por suítes E2E (`karate-tests/`) e de carga (`gatling-tests/`) — ver seções abaixo.
-
-## 📊 Dashboard Interativo (Streamlit — `dashboard/`)
-
-Um painel web em **Streamlit** com **tema dark** (`.streamlit/config.toml`: fundo `#0e1117`, painéis `#262730`, cor primária `#e74c3c`) consome a API e desenha os gráficos com **Plotly** no tema `plotly_dark` (fundos transparentes para integrar ao painel). Organizado em **13 abas**: **Visão Geral**, **Séries Temporais**, **Mapa de Calor**, **Mancha Criminal**, **Idades**, **Desaparecidos**, **Idosos**, **Previsões**, **Classificação**, **Análises**, **Resumo Geral**, **Tabelas** e **Qualidade dos Dados**. O painel não executa análise própria — apenas reaproveita os endpoints da API.
-
-- **Visão Geral:** métricas-resumo do indicador escolhido (tabela gold + coluna) — valor no último ano com variação vs. ano anterior (vermelho = alta da criminalidade), período coberto, RA mais crítica e total de RAs monitoradas. A carga das tabelas gold é cacheada por 10 minutos (`st.cache_data`). As colunas numéricas disponíveis são comparadas ao schema gold declarado em `validation/esquemas.py`: se nenhum indicador esperado for encontrado (tabela sobrescrita com colunas genéricas), a aba exibe um aviso orientando a reconstrução com `python -m src.pipeline_tabela_gold`. Tabelas de identificação/desaparecidos, que não representam contagens comparáveis ano a ano, ficam fora deste seletor.
-- **Séries Temporais:** mostra o **total consolidado por ano** (soma de todas as RAs) como linha principal, com **RAs selecionáveis** via multiselect para comparação e **média móvel** configurável (janela 1 = desativada), além do modo "Contagem por categoria". Os seletores usam **rótulos legíveis em pt-BR** (ex.: `identificacao_crimes_contra_mulher_gold` → "Identificação crimes contra mulher"; `idade_vitima` → "Idade da vítima"), aplicados também aos títulos e eixos dos gráficos. As tabelas de idosos e desaparecidos (não comparáveis por ano ou já atendidas em aba própria) ficam fora do seletor.
-- **Mapa de Calor:** heatmap RA × ano do indicador escolhido e ranking horizontal das RAs com escala de cores YlOrRd (com filtro opcional de ano). Fica fora do seletor tudo que não tem o recorte RA × ano (idosos, desaparecidos e identificação de crimes).
-- **Identificação crimes** (antes "Idades"): histograma sobreposto da idade da vítima × autor (suspeito), com largura de bins ajustável e tabela-resumo, sempre sobre a tabela fixa `identificacao_crimes_contra_mulher_gold` (sem seletor).
-- **Desaparecidos:** quatro gráficos de barra em grade 2×2 — desaparecidos **por sexo** (cores fixas masculino/feminino), **por faixa etária** (ordenada pelo número da faixa), **localizados × ainda desaparecidos** (verde/vermelho) e **por RA** com barras agrupadas 2020 × 2021 — consumindo `desaparecidos_idade_sexo_gold`, `desaparecidos_localizados_gold` e `desaparecidos_regiao_gold`. Tabela não materializada exibe aviso sem quebrar a aba.
-- **Mancha Criminal:** mapa interativo com **DensityMap** (kde sobre centroides das ocorrências) e **ScatterMap** (marcadores de RA), consumindo os endpoints `/analise/zonas-quentes`. Ranking lateral das RAs com mais ocorrências.
-- **Idosos:** quatro gráficos dedicados à violência contra idosos — Distribuição por Sexo, Por Faixa Etária, Ocorrências por Mês e Evolução Anual — consumindo `violencia_idosos_mensais_gold`, `violencia_idosossexo_gold`, `violencia_idosos_ocorrencias_gold` e `violencia_idosos_resumo_gold`.
-- **Análises:** quatro seções — **Correlações** (matriz heatmap, scatter top-5 pares, insights textuais), **Granger** (tabela de causalidade com ícones de significância), **Anomalias** (série temporal com pontos anômalos marcados) e **Zonas Quentes** (tabela rankeada com destaque visual) — consumindo `GET /analise/correlacoes`, `GET /analise/granger`, `GET /analise/anomalias` e `GET /analise/zonas-quentes`.
-- **Qualidade dos Dados:** consome `GET /qualidade/dados` — métricas de **Score geral (0-100)**, tabelas materializadas e não materializadas; gráfico de barras com a **nota média por dimensão** e tabela-resumo por tabela gold (materializada, linhas, score, nº de problemas/avisos); expanders com o detalhe de cada tabela (nota por dimensão, problemas e avisos).
-- **Resumo Geral:** síntese executiva gerada via **Ollama** (modelo local configurável, fallback amigável quando indisponível), com contexto montado a partir das 8 seções de `contexto_ia.py` (visão geral, séries, mapa, anomalias, correlações, classificação, previsão, top-5 RAs).
-- **Previsões:** consome `GET /previsao/crimes-contra-mulher` com horizonte ajustável; métricas do resíduo (MAE/RMSE), origem do modelo (artefato/retreino) e gráfico valor previsto × componente Prophet × resíduo.
-- **Classificação:** consome `GET /classificacao/criminalidade-letal` e mostra, para o ano selecionado, o **ranking das RAs pela probabilidade prevista de alta criminalidade letal** (barras coloridas pela classe prevista, com a fronteira de decisão p = 0,50 marcada) e um **mapa de calor RA × ano** da probabilidade. Abaixo, a tabela de classificações e a avaliação do modelo: CV ROC-AUC (média ± desvio), holdout ROC-AUC/F1, odds ratios por feature e matriz de confusão rotulada.
-- **Tabelas:** exploração livre das tabelas gold paginadas pela API, com filtros de ano e RA.
+- **Visão Geral:** métricas-resumo do indicador (valor no último ano, variação vs ano anterior, período, RA crítica). Carga cacheada 10 min. As colunas numéricas são **comparadas ao schema gold** de `validation/esquemas.py`: se nenhum indicador esperado existir (tabela degenerada/sobrescrita), a aba exibe aviso com o comando de reconstrução `python -m src.pipeline_tabela_gold`.
+- **Séries Temporais:** total anual consolidado + RAs selecionáveis + média móvel; rótulos pt-BR.
+- **Mapa de Calor:** heatmap RA × ano com escala YlOrRd e ranking horizontal.
+- **Mancha Criminal:** mapa com DensityMap/ScatterMap consumindo `/analise/zonas-quentes`.
+- **Desaparecidos:** grade 2×2 (sexo, faixa etária, localizados × desaparecidos, por RA).
+- **Violência contra idosos:** sexo, faixa etária, ocorrências por mês e evolução anual.
+- **Análises:** Correlações, Granger, Anomalias e Zonas Quentes (endpoints `/analise/*`).
+- **Qualidade dos Dados:** `GET /qualidade/dados` — score geral, nota média por dimensão, detalhe por tabela.
+- **Resumo Geral:** síntese executiva via **Ollama** (modelo local, fallback amigável) com contexto de 8 seções (`contexto_ia.py`).
+- **Previsões / Classificação / Tabelas:** consumo direto dos endpoints correspondentes (ranking de RAs, probabilidades, exploração paginada).
 
 ```
 dashboard/
-├── app.py              # interface Streamlit (12 abas: Visão Geral, Séries, Mapa, Mancha, Idades, Desap, Idosos, Previsões, Classificação, Análises, Resumo Geral, Tabelas)
-├── api_client.py       # cliente HTTP para a API (requests)
-├── ia_client.py        # cliente HTTP para Ollama (listar modelos, gerar resumo)
+├── app.py              # interface Streamlit (13 abas)
+├── api_client.py       # cliente HTTP da API (requests)
+├── ia_client.py        # cliente HTTP do Ollama
 ├── contexto_ia.py      # construtor de contexto para o Ollama (8 seções)
-└── visualizacoes.py    # transformações pandas + figuras Plotly + rótulos pt-BR (funções puras, testáveis)
-
-.streamlit/
-└── config.toml         # tema dark do dashboard
+└── visualizacoes.py    # transformações pandas + figuras Plotly + rótulos pt-BR (funções puras)
 ```
+
+## Qualidade e Testes
+
+**Suíte: 3.681 itens coletados, todos passando** — **97,66% de cobertura** sobre `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` (limiar mínimo: `--cov-fail-under=95`).
+
+**Pirâmide de testes:**
+- **2.897 itens de integração (78,7%)** — Postgres/PostGIS real via **Testcontainers** (`tests/integracao/`). Composição: 2.585 itens parametrizados da malha geoespacial (1 caso por célula), 105 repositório, 108 API gold grade, 36 pipeline gold grade, 21 repositório, 19 API gold, 16 geoespacial, 7 pipeline tabela gold.
+- **784 itens não-integração:** **674 unitários** + **52 de endpoints via TestClient** (28 `test_api_main`, 18 `test_analise_service`, 6 `test_qualidade_service`) + **58 de UI via AppTest**.
+  - `tests/api/` = 95 itens (services + endpoints via TestClient, com mocks de banco/modelo — sem Postgres nem treino real).
+  - `tests/dashboard/` = 185 itens (58 AppTest em 5 arquivos + 96 `visualizacoes` + 20 `api_client` + 9 `ia_client` + 2 `contexto_ia`).
 
 **Execução:**
 
 ```bash
-# 1. API no ar (ver seção Camada de Consumo)
+pytest -m "not integracao" -n auto --dist=loadfile  # 784 não-integração (paralela, sem Docker)
+pytest tests/integracao -n 0                        # 2.897 integração (~4 min, Testcontainers)
+pytest --cov                                        # com cobertura (gate --cov-fail-under=95)
+scripts\executar_testes.bat                         # fluxo completo + relatórios (Windows)
+```
+
+- O `addopts` do `pytest.ini` **não força paralelismo**: um `pytest` simples roda em série (evita levantar N containers PostGIS); paralelismo fica explícito nos scripts, apenas na camada não-integração.
+- Relatórios em `test_report/`: `relatorio-testes.html`, `junit.xml`, `coverage/index.html`, `coverage.xml`, `cobertura-executiva.html` (executivo, por `scripts/gerar_relatorio_cobertura.py`); log em `logs/testes.log`.
+
+**Data Quality Score (0–100):** `validation/qualidade_dados.py` calcula por tabela gold uma nota com **6 dimensões ponderadas** — Completude (25%), Unicidade (20%), Validade de schema (20%), Consistência (20%), Atualidade (10%, frescor do `inserido_em`, janela 30–365 dias decrescente) e Cobertura temporal (5%, 2015–2024). Dimensões não aplicáveis são excluídas e os pesos redistribuídos; tabelas não materializadas entram com nota 0. Consistência valida RAs contra o domínio canônico (`util.padronizacao`), anos no período e contagens não negativas. Exposto em `GET /qualidade/dados` (cache TTL 300s, 503 se indisponível) e na aba **Qualidade dos Dados**.
+
+### Suítes externas de API e UI
+
+| Suíte | Stack | Cobertura |
+|:---|:---|:---|
+| **E2E da API** (`karate-tests/`) | Karate DSL + Cucumber + Allure | 15 features; **85 `Scenario` + 1 `Scenario Outline` (6 linhas de `Examples`) = 91 execuções no total**; fluxo padrão executa **89** (os 2 cenários `@retreino` — `POST /previsao/retrain` e `/classificacao/retrain` — ficam fora; roda com `-Dkarate.options=--tags @retreino`) |
+| **Carga da API** (`gatling-tests/`) | Gatling (Scala/Maven) | 2 simulações: `SmokeSimulation` (1 execução/endpoint) e `ApiCargaSimulation` (rampa leitura 1→5 usuários/s + análises 0,2→1 usuários/s, 30s); falha o build se sucesso global < 99% ou p95 acima de 4000 ms (leitura) / 10000 ms (análises) — ajustados no commit `99a0823` |
+| **E2E de UI** (`e2e-tests/`) | CodeceptJS + Playwright + Cucumber + Allure + POM | **115 cenários** em 15 features (visão geral, abas, widgets, interações e conteúdo por aba, com asserções de valores reais via API) |
+
+## Como Executar (ambiente local)
+
+```bash
+# 1. Subir o Postgres local (postgis/postgis:16-3.4 + pgAdmin em http://localhost:8080)
+docker compose up -d
+
+# 2. Configurar credenciais em .env (ver .env.example)
+
+# 3. Ambiente virtual e dependências
+python -m venv venv
+venv\Scripts\activate          # Windows  |  source venv/bin/activate (Linux/macOS)
+pip install -r requirements.txt
+pip install -r requirements-dev.txt   # para a suíte de testes
+
+# 4. Pipeline completo (coleta + gold + modelagem)
+python -m src.main
+
+# 5. Análises executivas
+python -m analysis.pipeline_analise
+# Saída em data/analises/: relatorio_executivo.md/.html + mapa_calor_roubo_pedestre.html
+
+# 6. Testes
+pytest -m "not integracao" -n auto    # não-integração (sem Docker)
+pytest tests/integracao -n 0          # integração via Testcontainers (requer Docker, ~4 min)
+pytest --cov                          # cobertura (gate 95%)
+scripts\executar_testes.bat           # fluxo completo + relatórios (Windows)
+
+# 7. API (documentação em http://localhost:8000/docs)
 uvicorn api.main:app --reload --port 8000
 
-# 2. Abrir o dashboard
-streamlit run dashboard/app.py
-# Acesse em: http://localhost:8501
+# 8. Dashboard
+streamlit run dashboard/app.py        # http://localhost:8501 (URL da API configurável na sidebar)
+
+# 9. Suítes externas (requerem API e/ou dashboard no ar)
+cd karate-tests   && mvn test          # E2E da API
+cd ../gatling-tests && mvn gatling:test # carga (ou -Dgatling.simulationClass=...SmokeSimulation)
+cd ../e2e-tests   && npm install && npx playwright install chromium && npm run test:all
 ```
 
-A URL da API pode ser alterada na sidebar do próprio painel (padrão: `http://localhost:8000`).
+## Estrutura de Diretórios
 
-Testes: `tests/dashboard/` (**58 itens AppTest em 5 arquivos**: `test_app_geral.py`, `test_app_abas.py`, `test_app_interacao.py`, `test_app_analises.py`, `test_app_qualidade.py`) — o app é exercitado via `AppTest` (`streamlit.testing.v1`) com o cliente HTTP mockado; sem servidor nem banco. A lógica de apoio tem unitários próprios: `test_api_client.py` (20), `test_visualizacoes.py` (96), `test_ia_client.py` (9) e `test_contexto_ia.py` (2).
+| Diretório | Conteúdo |
+|:---|:---|
+| `src/` | Coleta, scraping, tratamento (crimes/população), orquestração (`main.py`, `pipeline_*`, `core/`) |
+| `domain/` | Serviços de domínio por tema (mulher, idosos, letais, patrimoniais, discriminatórios, desaparecidos) |
+| `database/` | Conexão SQLAlchemy, repositório do Postgres, carga de CSVs |
+| `ingestion/` | Adaptador (`Repository`) entre domínio e `database/repository` |
+| `geoespacial/` | Malha regular de células 1 km, centróides das RAs e DDL PostGIS opcional |
+| `processing/` | Transformações genéricas e pós-processamento |
+| `validation/` | Schemas (`schema.py`, `esquemas.py`) e Data Quality Score (`qualidade_dados.py`) |
+| `analysis/` | Modelagem e análises executivas (Prophet+XGBoost, correlações, Granger, anomalias, mapa, relatório) |
+| `api/` | API REST FastAPI (routers + services) |
+| `dashboard/` | Painel Streamlit/Plotly (13 abas, cliente de API e IA, visualizações) |
+| `util/` | Utilitários (Excel, ZIP, logging, padronização de RAs, loader de configuração) |
+| `config/` | Configuração de datasets (`datasets_config.py`) |
+| `models/` | Artefatos treinados (bundles `.pkl` + `_meta.json`) |
+| `data/` | Camadas `bronze/`, `silver/` do lakehouse local (gerada em runtime; ignorada pelo Git) |
+| `tests/` | Suíte pytest: unitários, API (TestClient), dashboard (AppTest) e `integracao/` (Testcontainers) |
+| `karate-tests/` | E2E da API (Karate DSL + Cucumber + Allure) |
+| `gatling-tests/` | Carga/performance da API (Gatling, Scala/Maven) |
+| `e2e-tests/` | E2E de UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure + POM) |
+| `scripts/` | `executar_testes.bat`, `testar-com-coverage.bat`, `executar_testes.ps1`, `gerar_relatorio_cobertura.py` |
+| `docker-compose.yaml` | PostgreSQL 16 + PostGIS + pgAdmin para ambiente local |
+| `requirements.txt` / `requirements-dev.txt` | Dependências de runtime e de desenvolvimento (pytest, xdist, cov, html, testcontainers) |
 
-## 🔁 Testes E2E da API (Karate DSL + Cucumber + Allure — `karate-tests/`)
+## Observações relevantes
 
-Suíte de testes **end-to-end** da API de consumo, escrita em **Gherkin (Cucumber)** e executada com **Karate DSL**, com relatório **Allure**. Cobrem `GET /health`, `GET /`, os endpoints de gold (`/gold/tabelas`, `/gold/{tabela}/resumo`, `/gold/{tabela}/dados` com paginação/filtros), de previsão (`GET /previsao/crimes-contra-mulher`, `GET /previsao/modelos`), de classificação (`GET /classificacao/criminalidade-letal`) e as análises executivas (`GET /analise/correlacoes` com matriz quadrada/diagonal 1/pares ordenados por |r|, `GET /analise/granger` com consistência significante × p-valor, `GET /analise/anomalias` sem exposição das colunas internas, e `GET /analise/zonas-quentes` com ordenação e padrão de `celula_id`), incluindo validações de parâmetro inválido (422). Total: **90 cenários** em **15 arquivos de feature** (85 `Scenario` + 1 `Scenario Outline` com 6 linhas de `Examples`). Os cenários `@retreino` (`POST /previsao/retrain` e `POST /classificacao/retrain`) treinam e persistem novos artefatos e ficam **excluídos** por padrão (inclua com `mvn test "-Dkarate.options=--tags @retreino"`).
-
-```bash
-# Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
-cd karate-tests
-mvn test
-# Relatório Allure:
-allure generate target/allure-results -o target/allure-report
-```
-
-Base URL configurável via `mvn test -Dkarate.env=hml` (ver `karate-tests/README.md`). O baseUrl padrão é `http://localhost:8000`.
-
-## 🏋️ Testes de Carga da API (Gatling — `gatling-tests/`)
-
-Testes de **carga/performance** da API em **Scala** com **Gatling**, cobrindo dois perfis de uso: leitura do dashboard (health, gold, previsões e classificação) e análises executivas (correlações, Granger, anomalias e zonas quentes). Duas simulações:
-
-- `SmokeSimulation` — uma execução única de cada endpoint (incluindo os quatro `/analise/*`), para confirmar que a API responde antes da carga.
-- `ApiCargaSimulation` — dois cenários em paralelo: **leitura** com rampa de `1` → `5` usuários/s e **análises** com rampa de `0,2` → `1` usuários/s durante 30s, seguidos de 30s de carga constante; falha o build se a taxa de sucesso global ficar abaixo de **99%** ou se o p95 de qualquer perfil estourar seu limite (`4000 ms` para leitura, `10000 ms` para análises — avaliados por grupos do Gatling).
-
-```bash
-# Requer a API no ar (uvicorn api.main:app --reload --port 8000) com o banco populado
-cd gatling-tests
-mvn gatling:test                                       # carga (ApiCargaSimulation)
-mvn gatling:test -Dgatling.simulationClass=criminalidade.api.SmokeSimulation
-# Relatório HTML estático em target/gatling/<simulacao>/index.html
-```
-
-Parâmetros da carga (propriedades do sistema, todos opcionais): `api.baseUrl`, `carga.usuariosIniciais`, `carga.usuariosFinais`, `carga.duracaoRampaSegundos`, `carga.duracaoCargaSegundos`, `carga.p95LimiteMs`, `carga.analiseUsuariosFinais`, `carga.p95AnaliseLimiteMs` — ver `gatling-tests/README.md`. A primeira execução registrada (`smoke.log`) falhou por **`Connection refused`** (API não estava no ar durante a rodada), não por bug de código.
-
-> **Ajuste de capacidade (commit `99a0823`):** os padrões originais da rampa (`20` usuários/s finais, 60s de carga, p95 de 1000 ms) derrubavam a API local sob alta concorrência. Os defaults foram reduzidos para `5` usuários/s e 30s de carga, e o limite de p95 ampliado para 4000 ms — valores que a API sustenta estável com o endpoint de previsão (Prophet+XGBoost) no fluxo. Para cenários mais agressivos, sobrecarregue via propriedades do sistema (ex.: `-Dcarga.usuariosFinais=10`).
-
-## 🖥️ Testes E2E de UI do Dashboard (CodeceptJS + Playwright + Cucumber + Allure — `e2e-tests/`)
-
-Suíte de testes **end-to-end da interface** do dashboard Streamlit, escrita em **Gherkin (Cucumber)** e executada com **CodeceptJS** + **Playwright** (Chromium) sob o padrão **Page Object Model (POM)**, com relatório **Allure** (evidências de screenshot/vídeo/trace anexadas em falhas). Cobre o carregamento e título do dashboard, a configuração da API na sidebar (health check), a navegação pelas **12 abas**, as **sub-abas de Análises**, a **presença de controles estáveis** (selectboxes, sliders, checkboxes, campos e métricas) por aba e, desde a expansão recente, **cenários de conteúdo e interação por aba** (métricas, gráficos, sliders e seletores). Total: **115 cenários** em **15 features** (dashboard=3, tabs=12, interactions=5, widgets=12, visao_geral=12, series_temporais=12, mapa_calor=10, mancha_criminal=12, identificacao_crimes=5, desaparecidos=5, violencia_idosos=5, previsoes=5, classificacao=5, analises=7, tabelas=5).
-
-Page objects em `tests/pages/` (`BasePage`, `SidebarPage`, `tests/pages/tabs/*` — um por aba), features em `tests/features/ui/` e step definitions em `tests/steps/ui/`. Uso de `async/await` com waits tolerantes para a renderização lenta das abas pesadas.
-
-**Técnicas de interação E2E:** sliders do Streamlit são `input[type="range"]` com `aria-label` (= rótulo do widget) e input visualmente clipeado — a interação foca o input via `executeScript` e ajusta com setas `ArrowRight`/`ArrowLeft`, lendo o valor de volta por `executeScript`; comboBoxes (react-aria) usam `[data-testid="stSelectbox"]:visible:has-text("<rótulo>") input` + clique na opção `[role="option"]`, com **fallback de digitação** (`fillField`) para expor opções de listas virtualizadas (a última opção de um dropdown com 12 itens, ex.: "Desaparecidos — por RA" na aba Tabelas, não é renderizada sem filtrar); checkboxes são contêineres `[data-testid="stCheckbox"]` clicáveis. Retries usam **polling sem-throw** (`grabNumberOfVisibleElements` + `setTimeout`), pois helpers que lançam envenenam o recorder do CodeceptJS. Vários cenários **assertam valores reais via API** (ex.: métricas de resumo das tabelas gold — `Linhas` 347/340/33 conforme a tabela selecionada).
-
-```bash
-# Requer o dashboard Streamlit no ar (streamlit run dashboard/app.py -> localhost:8501) e a API (uvicorn api.main:app -> localhost:8000)
-cd e2e-tests
-npm install
-npx playwright install chromium
-npm run test:all        # roda 115 cenários com o plugin Allure
-npm run allure:serve     # serve o relatório
-```
-
-Scripts disponíveis: `test:ui`, `test:e2e`, `test:smoke`, `test:regression`, `test:all`, `test:headed`, `allure:attach`, `allure:serve`, `allure:report`. Detalhes em `e2e-tests/README.md`.
-
-## 📌 Observações e Pontos de Atenção (herdados da análise técnica do projeto)
-
-- ✅ **Padronização de RA consolidada:** as variantes de nome de Região Administrativa (ex.: `SUDOESTE` → `SUDOESTE/OCTOGONAL`) antes eram tratadas por chamadas pontuais e duplicadas de `renomear_linha` em `domain/violencia_mulher.py` e `domain/identificacao_crimes.py`, mais um `.replace({...})` inline e independente em `ViolenciaMulherService.carregar_feminicidio`. Agora existe um único mapeamento mestre (`util.padronizacao.MAPEAMENTO_REGIOES_ADMINISTRATIVAS`, aplicado via `renomear_regioes_conhecidas`), usado pelos três pontos — qualquer nova variante encontrada no futuro deve ser adicionada só ali. Cobertura de teste nova em `tests/util/test_padronizacao.py` e `tests/domain/` (que antes não existiam).
-- ✅ **Maturidade igual entre pipelines:** o pipeline Silver (`pipeline_busca_transformacao.py`) foi levado ao mesmo modelo do Gold — definição declarativa de `PipelineStep`s para os tratamentos independentes, executados em paralelo via `executar_pipeline` (com retry e timeout), preservando em sequência apenas as fases com dependência de dados (coleta → população → planilhas → carga).
-- ✅ **`src/main.py` executa as três etapas:** coleta/transformação, tabela gold e modelagem rodam em sequência por padrão — todo o fluxo tem cobertura de teste (incluindo o bloco `if __name__ == "__main__":`, coberto via `runpy`).
-- ✅ **Metadados de modelo padronizados:** todos os artefatos em `models/` (incluindo os `xgb_residual_log_*`) já geram `_meta.json` via `save_model_with_metadata` (métricas, hiperparâmetros, features, dataset_info).
-- ✅ **`requirements.txt` curado:** ver nota na seção "Como Executar" — já está separado de `requirements-dev.txt`.
-- ✅ **`.env` não é mais rastreado pelo Git:** confirmado nesta revisão (`git ls-tree` não lista o arquivo) — o item antes pendente de `git rm --cached .env` já foi resolvido. Ainda assim, se alguma credencial real chegou a ser commitada antes dessa correção, ela permanece no histórico do repositório e deveria ter sido rotacionada por precaução.
-- ✅ **Cobertura de teste ampliada:** `pytest.ini` mede `analysis`, `api`, `config`, `dashboard`, `database`, `domain`, `geoespacial`, `ingestion`, `processing`, `src`, `util` e `validation` — cobertura real medida: **98,17%** (3.653 itens, incluindo a camada de integração contra banco real), com `validation/validator.py` em 100% (antes era o único pacote de produção sem testes próprios, coberto em apenas 36%).
-- ✅ **Bug de variável de ambiente em teste resolvido:** a fixture `env_valido` de `tests/database/test_connection.py` usava `POSTGRES_USERNAME`, divergente de `POSTGRES_USER` (código de produção e `.env.example`) — as 3 falhas só não apareciam com `.env` local. Corrigido para `POSTGRES_USER`; ver seção "✅ Qualidade e Testes".
-
-## 🗺️ Roadmap / Visão Futura
-
-Registro das direções de evolução. Itens com ✅ **já existem no código** (com referência para a seção/documentação correspondente); os demais seguem como direções possíveis, não devendo ser confundidos com o estado presente do projeto:
-
-### Arquitetura e dados
-- ✅ **Camada geoespacial implementada** — malha regular de células em pandas/numpy (`geoespacial/malha.py`), centróides aproximados das RAs e módulo PostGIS opcional (`geoespacial/postgis.py`, DDL condicionado à extensão disponível; o `docker-compose.yaml` já usa a imagem `postgis/postgis:16-3.4`). Ver seção "📈 Análises Executivas".
-- ✅ **Data quality automatizado entre camadas implementado** — schemas declarativos silver/gold em `validation/schema.py` + `validation/esquemas.py`, aplicados automaticamente via hook `PipelineStep.validacao` (leitura do CSV silver quando o step não retorna DataFrame).
-- ✅ **Orquestração unificada implementada** — o pipeline Silver usa o mesmo motor declarativo `PipelineStep` + `executar_pipeline` do Gold, agora com agendamento topológico por dependências, propagação de falhas entre etapas dependentes e detecção de ciclo.
-
-### Modelagem e análise
-- ✅ **Análise de correlação multivariada implementada** — matriz Pearson/Spearman entre 12 indicadores gold, causalidade de Granger pairwise e correlação espacial idosos × patrimoniais por RA (`analysis/correlacoes.py`). Ver seção "📈 Análises Executivas".
-- ✅ **Visualização geoespacial implementada** — mapa de calor Folium sobre a malha de células + export GeoPackage/GeoPandas (`analysis/mapa.py`). Ver seção "📈 Análises Executivas".
-- ✅ **Detecção de outliers/anomalias implementada** — Isolation Forest na série mensal de idosos e no painel RA × ano (`analysis/anomalias.py`). Ver seção "📈 Análises Executivas".
-- ✅ **Exportação de relatório executivo implementada** — Markdown + HTML autocontido com os insights de cada análise (`analysis/relatorio.py`, orquestrado por `python -m analysis.pipeline_analise`). Ver seção "📈 Análises Executivas".
-
-### Camada de consumo
-- ✅ **API (FastAPI) implementada** — ver seção "🌐 Camada de Consumo (API)" acima.
-- ✅ **Prophet persistido junto ao XGBoost** — `GET /previsao/crimes-contra-mulher` já serve por padrão a partir do artefato ("bundle") salvo em `models/`, com `POST /previsao/retrain` como endpoint de retrain explícito. Ver seção "🌐 Camada de Consumo (API)" acima.
-- ✅ **Dashboard interativo (Streamlit/Plotly) implementado** — ver seção "📊 Dashboard Interativo" acima.
-- ✅ **Testes E2E da API (Karate DSL + Cucumber + Allure) implementados** — ver seção "🔁 Testes E2E da API" acima.
-- ✅ **Testes de carga/performance da API (Gatling) implementados** — ver seção "🏋️ Testes de Carga da API" acima.
-- ✅ **Testes E2E de UI do dashboard (CodeceptJS + Playwright + Cucumber + Allure) implementados** — ver seção "🖥️ Testes E2E de UI do Dashboard" acima.
+- **Padronização de RA centralizada:** variantes de nomes (`SUDOESTE` → `SUDOESTE/OCTOGONAL`) tratadas por um único mapeamento mestre em `util.padronizacao.MAPEAMENTO_REGIOES_ADMINISTRATIVAS`, aplicado via `renomear_regioes_conhecidas` (`domain/violencia_mulher.py`, `domain/identificacao_crimes.py` e `ViolenciaMulherService.carregar_feminicidio`). Novas variantes devem ser adicionadas só ali.
+- **Maturidade igual entre pipelines:** o pipeline Silver usa o mesmo motor declarativo `PipelineStep` + `executar_pipeline` (paralelismo, retry, timeout, agendamento topológico e detecção de ciclo) do Gold.
+- **Metadados padronizados:** todos os artefatos em `models/` geram `_meta.json` via `save_model_with_metadata`.
+- **Dependências curadas:** `requirements.txt` (runtime) separado de `requirements-dev.txt` (testes); `.env` não é rastreado pelo Git.
+- **Guard de schema no dashboard:** a Visão Geral compara as colunas carregadas ao schema gold de `validation/esquemas.py`; se a tabela foi sobrescrita com colunas genéricas (ex.: gold degenerado), exibe aviso com o comando de reconstrução (`python -m src.pipeline_tabela_gold`) em vez de exibir métricas incorretas — coberto por teste de regressão.
+- **Carga de carga da API:** os defaults do Gatling foram reduzidos (commit `99a0823`) porque os originais derrubavam a API local sob alta concorrência; parâmetros sobrecarregáveis via `-Dcarga.*`.
