@@ -1,6 +1,41 @@
 # Análise de Criminalidade do Distrito Federal
 
-**Tecnologias:** Python 3 · Pandas · NumPy · PostgreSQL 16 + PostGIS · SQLAlchemy · psycopg2 · FastAPI · Streamlit · Plotly · Folium · GeoPandas · Prophet · XGBoost · scikit-learn · joblib · requests/BeautifulSoup · PyYAML · Docker Compose · pytest (xdist · cov · html) · Testcontainers · Karate DSL · Gatling · CodeceptJS · Playwright · Cucumber · Allure
+![License](https://img.shields.io/badge/license-MIT-lightgrey)
+![Java](https://img.shields.io/badge/Java-21-orange)
+![Maven](https://img.shields.io/badge/Apache%20Maven-3.9.11-C71A36?logo=apachemaven&logoColor=white)
+![Node.js](https://img.shields.io/badge/Node.js-22-339933?logo=node.js&logoColor=white)
+![npm](https://img.shields.io/badge/npm-Package%20Manager-CB3837?logo=npm&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.13.0-3776AB?logo=python&logoColor=white)
+![Pandas](https://img.shields.io/badge/Pandas-2.x-150458?logo=pandas&logoColor=white)
+![NumPy](https://img.shields.io/badge/NumPy-2.x-013243?logo=numpy&logoColor=white)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)
+![PostGIS](https://img.shields.io/badge/PostGIS-3.x-5C8A8A?logo=postgresql&logoColor=white)
+![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.x-D71F00?logo=sqlalchemy&logoColor=white)
+![psycopg2](https://img.shields.io/badge/psycopg2-PostgreSQL%20Adapter-336791?logo=postgresql&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.115.x-009688?logo=fastapi&logoColor=white)
+![Streamlit](https://img.shields.io/badge/Streamlit-1.x-FF4B4B?logo=streamlit&logoColor=white)
+![Folium](https://img.shields.io/badge/Folium-Maps-77B829?logo=python&logoColor=white)
+![GeoPandas](https://img.shields.io/badge/GeoPandas-Geospatial-139C5A?logo=python&logoColor=white)
+![Prophet](https://img.shields.io/badge/Prophet-Forecasting-6A5ACD?logo=python&logoColor=white)
+![XGBoost](https://img.shields.io/badge/XGBoost-ML-EC6B23?logo=xgboost&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-ML-F7931E?logo=scikitlearn&logoColor=white)
+![Joblib](https://img.shields.io/badge/Joblib-Parallel%20Computing-3670A0?logo=python&logoColor=white)
+![Requests](https://img.shields.io/badge/Requests-HTTP-3776AB?logo=python&logoColor=white)
+![BeautifulSoup](https://img.shields.io/badge/BeautifulSoup-Web%20Scraping-3776AB?logo=python&logoColor=white)
+![PyYAML](https://img.shields.io/badge/PyYAML-YAML-3776AB?logo=python&logoColor=white)
+![Docker Compose](https://img.shields.io/badge/Docker%20Compose-Containerization-2496ED?logo=docker&logoColor=white)
+![Pytest](https://img.shields.io/badge/Pytest-Testing-0A9EDC?logo=pytest&logoColor=white)
+![pytest-xdist](https://img.shields.io/badge/pytest--xdist-Parallel%20Tests-0A9EDC?logo=pytest&logoColor=white)
+![pytest-cov](https://img.shields.io/badge/pytest--cov-Coverage-0A9EDC?logo=pytest&logoColor=white)
+![pytest-html](https://img.shields.io/badge/pytest--html-HTML%20Reports-0A9EDC?logo=pytest&logoColor=white)
+![Testcontainers](https://img.shields.io/badge/Testcontainers-Integration%20Testing-4DABCF?logo=docker&logoColor=white)
+![Karate DSL](https://img.shields.io/badge/Karate%20DSL-API%20Testing-29BEB0)
+![Gatling](https://img.shields.io/badge/Gatling-Load%20Testing-FF9E2C?logo=gatling&logoColor=white)
+![CodeceptJS](https://img.shields.io/badge/CodeceptJS-E2E-8B5CF6?logo=javascript&logoColor=white)
+![Playwright](https://img.shields.io/badge/Playwright-E2E-2EAD33?logo=playwright&logoColor=white)
+![Cucumber](https://img.shields.io/badge/Cucumber-BDD-23D96C?logo=cucumber&logoColor=white)
+![Allure](https://img.shields.io/badge/Allure-Test%20Reports-FF6A00)
+---
 
 Projeto que coleta, padroniza e consolida séries históricas de criminalidade do **Distrito Federal** (dados abertos da SSP-DF e população do IBGE/Wikipédia), organizando tudo em um **data lakehouse em camadas (Bronze → Silver → Gold)** com banco PostgreSQL/PostGIS. A camada Gold alimenta um **modelo híbrido Prophet + XGBoost** de previsão de séries temporais (aplicado a crimes contra a mulher por RA), análises executivas (correlações, causalidade de Granger, anomalias e zonas quentes), uma **API REST (FastAPI)** e um **dashboard interativo (Streamlit + Plotly)** — tudo coberto por testes unitários, de integração (banco real via Testcontainers), E2E de API e UI e de carga.
 
@@ -230,7 +265,7 @@ dashboard/
 pytest -m "not integracao" -n auto --dist=loadfile  # 784 não-integração (paralela, sem Docker)
 pytest tests/integracao -n 0                        # 2.897 integração (~4 min, Testcontainers)
 pytest --cov                                        # com cobertura (gate --cov-fail-under=95)
-scripts\executar_testes.bat                         # fluxo completo + relatórios (Windows)
+scripts\gerar-relatorios.bat                        # fluxo completo + relatórios (Windows)
 ```
 
 - O `addopts` do `pytest.ini` **não força paralelismo**: um `pytest` simples roda em série (evita levantar N containers PostGIS); paralelismo fica explícito nos scripts, apenas na camada não-integração.
@@ -271,7 +306,7 @@ python -m analysis.pipeline_analise
 pytest -m "not integracao" -n auto    # não-integração (sem Docker)
 pytest tests/integracao -n 0          # integração via Testcontainers (requer Docker, ~4 min)
 pytest --cov                          # cobertura (gate 95%)
-scripts\executar_testes.bat           # fluxo completo + relatórios (Windows)
+scripts\gerar-relatorios.bat           # fluxo completo + relatórios (Windows)
 
 # 7. API (documentação em http://localhost:8000/docs)
 uvicorn api.main:app --reload --port 8000
