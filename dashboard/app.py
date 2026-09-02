@@ -95,6 +95,8 @@ from dashboard.visualizacoes import (
     rotulo_tabela,
     zonas_quentes_para_dataframe,
 )
+from validation.esquemas import GOLD
+from validation.schema import NUMERICO
 
 TITULO = "Criminalidade em Brasília/DF — Dashboard Analítico"
 
@@ -147,6 +149,14 @@ def _colunas_valor(df: pd.DataFrame) -> list:
     return [c for c in colunas_numericas(df) if c != coluna_ano]
 
 
+def _indicadores_gold_esperados(tabela: str) -> set | None:
+    """Colunas numéricas (exceto ano) que o schema gold declara para a tabela."""
+    esquema = GOLD.get(tabela)
+    if esquema is None:
+        return None
+    return {c for c, tipo in esquema.colunas.items() if tipo == NUMERICO and c != "ano"}
+
+
 def _formatar_numero(valor: float) -> str:
     """Formata um número com separador de milhar no padrão pt-BR."""
     if pd.isna(valor):
@@ -177,6 +187,17 @@ def _aba_visao_geral(base_url: str) -> None:
     if not colunas:
         st.info("A tabela selecionada não possui indicadores numéricos para resumir.")
         return
+
+    esperados = _indicadores_gold_esperados(tabela)
+    if esperados and not set(colunas) & esperados:
+        st.warning(
+            "Tabela gold fora do padrão esperado: nenhum indicador do schema "
+            f"({', '.join(sorted(esperados))}) foi encontrado nas colunas "
+            f"({', '.join(colunas) or '—'}). Reconstrua o gold com o comando "
+            "`python -m src.pipeline_tabela_gold`."
+        )
+        return
+
     coluna = st.selectbox(
         "Indicador", colunas, key="vg_indicador", format_func=rotulo_coluna
     )

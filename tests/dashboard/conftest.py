@@ -18,8 +18,8 @@ DADOS = {
     "total_linhas": 2,
     "total_paginas": 1,
     "registros": [
-        {"ano": 2020, "regiao_administrativa": "Taguatinga", "crimes": 10},
-        {"ano": 2021, "regiao_administrativa": "Ceilândia", "crimes": 20},
+        {"ano": 2020, "regiao_administrativa": "Taguatinga", "ocorrencia_homicidio": 10, "crimes": 10},
+        {"ano": 2021, "regiao_administrativa": "Ceilândia", "ocorrencia_homicidio": 20, "crimes": 20},
     ],
 }
 
