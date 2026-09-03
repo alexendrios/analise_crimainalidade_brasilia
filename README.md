@@ -284,16 +284,16 @@ scripts\gerar-relatorios.bat                        # fluxo completo + relatóri
 ## Como Executar (ambiente local)
 
 ```bash
-# 1. Subir o Postgres local (postgis/postgis:16-3.4 + pgAdmin em http://localhost:8080)
+# 1. Rodar a aplicação via Docker
 docker compose up -d
 
 # 2. Configurar credenciais em .env (ver .env.example)
 
-# 3. Ambiente virtual e dependências
+#  Executar Local
+docker compose up -d postgres pgadmin ollama
 python -m venv venv
 venv\Scripts\activate          # Windows  |  source venv/bin/activate (Linux/macOS)
 pip install -r requirements.txt
-pip install -r requirements-dev.txt   # para a suíte de testes
 
 # 4. Pipeline completo (coleta + gold + modelagem)
 python -m src.main
