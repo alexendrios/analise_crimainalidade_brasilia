@@ -454,6 +454,24 @@ def executar_pipeline(horizonte_anos: int | None = None):
     horizonte = int(horizonte_anos or HORIZONTE_ANOS_PADRAO)
 
     df = Repository.load(TABELA_MODELO)
+
+    if df is None:
+        logger.error(
+            "🚫 Não foi possível carregar a tabela '%s'. "
+            "Verifique se a etapa de gold foi executada e se o banco está acessível.",
+            TABELA_MODELO,
+        )
+        raise RuntimeError(
+            f"Não foi possível carregar a tabela '{TABELA_MODELO}'. "
+            "Verifique se a etapa 'criar_tabela_gold' foi executada e se o banco está acessível."
+        )
+
+    if df.empty:
+        logger.error("🚫 A tabela '%s' está vazia. Execute a etapa de gold antes.", TABELA_MODELO)
+        raise RuntimeError(
+            f"A tabela '{TABELA_MODELO}' está vazia. Execute a etapa de gold antes."
+        )
+
     df_preparado = preparar_dados(df, COLUNA_ALVO)
 
     (

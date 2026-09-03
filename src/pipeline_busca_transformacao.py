@@ -307,5 +307,6 @@ def busca_transformacao_dados(max_workers: int = 6):
 
     except Exception as e:
         logger.exception("Erro durante a execução do pipeline: %s", e)
+        raise
 
     log_tempo_fim("Pipeline Completo", pipeline_start)

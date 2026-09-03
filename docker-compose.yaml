@@ -26,8 +26,96 @@ services:
       - oracle_net
     restart: unless-stopped
 
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        ollama serve &
+        sleep 5
+        ollama pull llama3.2
+        wait
+    volumes:
+      - ollama_data:/root/.ollama
+    networks:
+      - oracle_net
+    restart: unless-stopped
+
+  pipeline:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: pipeline
+    environment:
+      - POSTGRES_USER=criminalidade_user
+      - POSTGRES_PASSWORD=criminalidade_pass
+      - POSTGRES_DB=criminalidade_db
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REQUISITOS_SSL=?sslmode=disable
+      - OLLAMA_HOST=http://ollama:11434
+    command: python -m src.main
+    depends_on:
+      - postgres
+      - ollama
+    networks:
+      - oracle_net
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: api
+    ports:
+      - "8000:8000"
+    environment:
+      - POSTGRES_USER=criminalidade_user
+      - POSTGRES_PASSWORD=criminalidade_pass
+      - POSTGRES_DB=criminalidade_db
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REQUISITOS_SSL=?sslmode=disable
+      - OLLAMA_HOST=http://ollama:11434
+    command: uvicorn api.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - postgres
+      - ollama
+    networks:
+      - oracle_net
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dashboard
+    ports:
+      - "8501:8501"
+    environment:
+      - POSTGRES_USER=criminalidade_user
+      - POSTGRES_PASSWORD=criminalidade_pass
+      - POSTGRES_DB=criminalidade_db
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - REQUISITOS_SSL=?sslmode=disable
+      - API_BASE_URL=http://api:8000
+      - OLLAMA_BASE_URL=http://ollama:11434
+    command: streamlit run dashboard/app.py --server.port 8501 --server.address 0.0.0.0
+    depends_on:
+      - postgres
+      - api
+      - ollama
+    networks:
+      - oracle_net
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+  ollama_data:
 
 networks:
   oracle_net:

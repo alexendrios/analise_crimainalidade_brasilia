@@ -498,7 +498,11 @@ def tratar_furto_veiculo(arquivo_entrada, arquivo_saida):
     )
 
     # Selecionar apenas anos 2015 a 2024
-    colunas_anos = [c for c in df.columns if c.isdigit() and 2015 <= int(c) <= 2024]
+    colunas_anos = [
+        c
+        for c in df.columns
+        if str(c).isdigit() and 2015 <= int(str(c)) <= 2024
+    ]
     df = df[["Região Administrativa"] + colunas_anos]
     logger.debug("Colunas de anos selecionadas: %s", colunas_anos)
 
